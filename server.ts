@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
-import { startWhatsAppBot, getWhatsAppStatus } from './src/bot/whatsapp.js';
+import { startWhatsAppBot, getWhatsAppStatus, logoutWhatsApp } from './src/bot/whatsapp.js';
 
 async function startServer() {
   const app = express();
@@ -26,6 +26,11 @@ async function startServer() {
   // ==========================================
   app.get('/api/whatsapp/status', (req, res) => {
     res.json(getWhatsAppStatus());
+  });
+
+  app.post('/api/whatsapp/logout', async (req, res) => {
+    const result = await logoutWhatsApp();
+    res.json(result);
   });
 
   // ==========================================

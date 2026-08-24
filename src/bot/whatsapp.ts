@@ -5,11 +5,36 @@ import QRCode from 'qrcode';
 
 export let waConnectionStatus: 'disconnected' | 'qr' | 'connected' = 'disconnected';
 export let waQrCodeBase64: string | null = null;
+let globalSock: any = null;
 
 export const getWhatsAppStatus = () => ({
   status: waConnectionStatus,
   qrCodeBase64: waQrCodeBase64
 });
+
+export async function logoutWhatsApp() {
+  if (globalSock) {
+    try {
+      await globalSock.logout();
+    } catch (err) {
+      console.error('Erro ao fazer logout do Baileys:', err);
+    }
+  }
+  
+  waConnectionStatus = 'disconnected';
+  waQrCodeBase64 = null;
+  
+  try {
+    const fs = await import('fs');
+    fs.rmSync('./auth_info_baileys', { recursive: true, force: true });
+  } catch (e) {
+    console.error('Erro ao limpar pasta de autenticação:', e);
+  }
+  
+  // Reinicia a engine para gerar novo QR Code
+  startWhatsAppBot();
+  return { success: true };
+}
 
 export async function startWhatsAppBot() {
   // Protocolo Disco Persistente: mapeamento direto para a pasta local
@@ -22,6 +47,8 @@ export async function startWhatsAppBot() {
     logger: pino({ level: 'silent' }) as any, // Silencia logs de rede massivos
     browser: ['123Mart Bot', 'Chrome', '2.0.0']
   });
+  
+  globalSock = sock;
 
   // Salva as credenciais sempre que houver alteração
   sock.ev.on('creds.update', saveCreds);

@@ -30,6 +30,15 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
+  const handleLogout = async () => {
+    try {
+      setWaStatus({ status: 'disconnected', qrCodeBase64: null });
+      await fetch('/api/whatsapp/logout', { method: 'POST' });
+    } catch (e) {
+      console.error('Logout falhou:', e);
+    }
+  };
+
   return (
     <div className="flex flex-col h-screen w-full bg-[#0F172A] text-slate-100 font-sans overflow-hidden">
       <header className="flex items-center justify-between px-8 py-4 bg-[#1E293B] border-b border-slate-700">
@@ -106,9 +115,19 @@ export default function App() {
         <section className="col-span-9 grid grid-rows-6 gap-6 overflow-hidden">
           <div className="row-span-2 grid grid-cols-3 gap-6">
             <div className="bg-[#1E293B] rounded-xl p-5 border border-slate-700 flex flex-col justify-between">
-              <span className="text-[10px] uppercase font-bold text-slate-500">
-                WhatsApp Connections
-              </span>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase font-bold text-slate-500">
+                  WhatsApp Connections
+                </span>
+                {waStatus.status === 'connected' && (
+                  <button 
+                    onClick={handleLogout} 
+                    className="text-[10px] bg-red-500/10 text-red-400 border border-red-500/30 px-2 py-0.5 rounded hover:bg-red-500/20 transition-colors cursor-pointer"
+                  >
+                    Desconectar
+                  </button>
+                )}
+              </div>
               <div className="flex items-baseline gap-2 mt-2">
                 <span className="text-3xl font-bold text-white">{waStatus.status === 'connected' ? '01' : '00'}</span>
                 <span className={`text-xs ${waStatus.status === 'connected' ? 'text-green-400' : 'text-amber-400'}`}>

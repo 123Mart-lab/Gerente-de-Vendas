@@ -1,0 +1,35 @@
+export const openwaService = {
+  /**
+   * Dispara uma requisição REST para o container do OpenWA enviar a mensagem.
+   */
+  async sendMessage(phone: string, text: string) {
+    // Estas variáveis devem ser configuradas no seu .env futuramente
+    const OPENWA_URL = process.env.OPENWA_URL || 'http://localhost:2785';
+    const SESSION_ID = process.env.OPENWA_SESSION_ID || 'default';
+    const API_KEY = process.env.OPENWA_API_KEY || ''; // Chave anotada no dashboard do OpenWA
+
+    try {
+      const response = await fetch(`${OPENWA_URL}/api/sessions/${SESSION_ID}/messages/send-text`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': API_KEY,
+        },
+        body: JSON.stringify({
+          chatId: phone, // O webhook já manda como "numero@c.us"
+          text: text
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.text();
+        console.error('❌ [OpenWA API] Falha ao enviar mensagem:', errorData);
+        return;
+      }
+      
+      console.log(`[📤 OpenWA] Mensagem disparada via REST para ${phone}`);
+    } catch (error) {
+      console.error('❌ [OpenWA API] Erro fatal de comunicação (Container Offline?):', error);
+    }
+  }
+};

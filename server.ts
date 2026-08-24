@@ -1,68 +1,97 @@
 import 'dotenv/config';
 import express from 'express';
-import path from 'path';
-import { createServer as createViteServer } from 'vite';
-import { startWhatsAppBot, getWhatsAppStatus, logoutWhatsApp } from './src/bot/whatsapp.js';
+// Serviços que serão integrados no Passo 3
+import { firebaseService } from './src/services/firebase.js';
+import { aiService } from './src/services/ai.js';
+import { openwaService } from './src/services/openwa.js';
 
-async function startServer() {
-  const app = express();
-  const PORT = 3000;
+const app = express();
+const PORT = 3000;
 
-  app.use(express.json());
+// O Webhook do OpenWA pode ser pesado se enviar mídia em base64, então aumentamos o limite de JSON
+app.use(express.json({ limit: '50mb' }));
 
-  // ==========================================
-  // PROTOCOLO DE SEGURANÇA: ANTI-SLEEP
-  // ==========================================
-  app.get('/api/health', (req, res) => {
-    res.json({ 
-      status: 'ok', 
-      engine: 'Baileys WebSockets Active',
-      timestamp: new Date().toISOString()
-    });
+// ==========================================
+// 1. ROTA DE MONITORAMENTO (HEALTH CHECK)
+// ==========================================
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    role: '123Mart Brain API (Stateless)',
+    engine: 'Waiting for OpenWA Webhooks'
   });
+});
 
-  // ==========================================
-  // ROTA DO QR CODE (PONTE FRONTEND-BACKEND)
-  // ==========================================
-  app.get('/api/whatsapp/status', (req, res) => {
-    res.json(getWhatsAppStatus());
-  });
+// ==========================================
+// 2. ROTA CENTRAL DE WEBHOOK (OPENWA)
+// ==========================================
+app.post('/webhook/openwa', async (req, res) => {
+  // A Regra de Ouro dos Webhooks: Sempre responda 200 OK IMEDIATAMENTE.
+  // Isso impede que o OpenWA ache que nosso servidor caiu e fique re-enviando a mesma mensagem.
+  res.status(200).send('OK');
 
-  app.post('/api/whatsapp/logout', async (req, res) => {
-    const result = await logoutWhatsApp();
-    res.json(result);
-  });
+  try {
+    const payload = req.body;
+    
+    // Filtra apenas eventos de mensagem recebida
+    if (payload.event === 'message.received') {
+      const msg = payload.data; // O OpenWA envia os dados dentro do nó "data"
+      
+      // Extração dos campos conforme a documentação do OpenWA
+      const phone = msg.sender;     // Ex: 551199999999@c.us
+      const text = msg.body;        // Texto da mensagem
+      const isFromMe = msg.fromMe;  // Booleano se fomos nós que enviamos
+      const isGroup = msg.isGroup;  // Booleano se a mensagem veio de um grupo
 
-  // ==========================================
-  // INICIALIZAÇÃO DA ENGINE (WHATSAPP)
-  // ==========================================
-  console.log('Iniciando integração com WhatsApp...');
-  startWhatsAppBot().catch(console.error);
+      // Barreira de Segurança: Não processar mensagens enviadas por nós mesmos, de grupos, ou sem texto.
+      if (isFromMe || isGroup || !text) {
+        return;
+      }
 
-  // ==========================================
-  // MIDDLEWARE VITE (AMBIENTE DE DESENVOLVIMENTO)
-  // ==========================================
-  if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-  } else {
-    // ==========================================
-    // ROTAS DE PRODUÇÃO (SPA)
-    // ==========================================
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+      console.log(`\n[📥 Webhook] Mensagem recebida de ${phone}: "${text}"`);
+
+      // ==========================================
+      // PASSO 3 AQUI: 
+      // 1. Buscar/Criar Lead no Firebase
+      // 2. Chamar a IA (Gemini)
+      // 3. Devolver a resposta via POST na API do OpenWA
+      // ==========================================
+      
+      // 1. Recupera ou cria o Lead no Funil (Firebase)
+      let lead = await firebaseService.getLead(phone);
+      if (!lead) {
+        lead = await firebaseService.createLead(phone);
+      }
+      
+      // Salva a mensagem do usuário no histórico
+      await firebaseService.saveMessage(phone, text, 'user');
+      
+      // Puxa o histórico de contexto
+      const history = await firebaseService.getLeadHistory(phone);
+      
+      // 2. Cérebro em Ação: O Gemini vai analisar o texto, o histórico e o estágio atual.
+      // Ele tem autonomia para consultar o TinyERP ou mudar o funil antes de formular o texto final.
+      const aiResponseText = await aiService.generateResponse(phone, text, history, lead.pipelineStage);
+      
+      // 3. Responde via API Gateway (OpenWA)
+      await openwaService.sendMessage(phone, aiResponseText);
+      
+      // 4. Salva o que a IA respondeu no banco
+      await firebaseService.saveMessage(phone, aiResponseText, 'ai');
+      
+    }
+  } catch (error) {
+    console.error('❌ Erro Crítico no processamento do Webhook:', error);
   }
+});
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Servidor unificado (Backend + Frontend) rodando em http://localhost:${PORT}`);
-    console.log(`📡 Rota Anti-Sleep ativa em http://localhost:${PORT}/api/health`);
-  });
-}
-
-startServer();
+// ==========================================
+// INICIALIZAÇÃO DO CÉREBRO
+// ==========================================
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`
+  🧠 [123MART BRAIN API] Inicializada com sucesso!
+  📡 Escutando Webhooks na porta: ${PORT}
+  🔗 Rota de Webhook: POST http://localhost:3000/webhook/openwa
+  `);
+});

@@ -119,14 +119,12 @@ export default function App() {
                 <span className="text-[10px] uppercase font-bold text-slate-500">
                   WhatsApp Connections
                 </span>
-                {waStatus.status === 'connected' && (
-                  <button 
-                    onClick={handleLogout} 
-                    className="text-[10px] bg-red-500/10 text-red-400 border border-red-500/30 px-2 py-0.5 rounded hover:bg-red-500/20 transition-colors cursor-pointer"
-                  >
-                    Desconectar
-                  </button>
-                )}
+                <button 
+                  onClick={handleLogout} 
+                  className="text-[10px] bg-red-500/10 text-red-400 border border-red-500/30 px-2 py-0.5 rounded hover:bg-red-500/20 transition-colors cursor-pointer"
+                >
+                  Forçar Reset
+                </button>
               </div>
               <div className="flex items-baseline gap-2 mt-2">
                 <span className="text-3xl font-bold text-white">{waStatus.status === 'connected' ? '01' : '00'}</span>

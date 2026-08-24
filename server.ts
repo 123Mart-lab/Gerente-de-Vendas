@@ -12,6 +12,26 @@ const PORT = 3000;
 app.use(express.json({ limit: '50mb' }));
 
 // ==========================================
+// 0. ROTA RAIZ (Para o Preview do AI Studio)
+// ==========================================
+app.get('/', (req, res) => {
+  res.send(`
+    <html>
+      <body style="font-family: system-ui, sans-serif; background: #0f172a; color: #f8fafc; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0;">
+        <h1 style="color: #38bdf8;">🧠 123Mart Brain API</h1>
+        <p>Servidor Stateless de Inteligência Artificial operando perfeitamente.</p>
+        <div style="background: #1e293b; padding: 20px; border-radius: 8px; margin-top: 20px; border: 1px solid #334155;">
+          <strong>Status das Rotas:</strong><br>
+          <span style="color: #4ade80;">🟢 GET</span> <a href="/api/health" style="color: #60a5fa;">/api/health</a> (Monitoramento)<br>
+          <span style="color: #4ade80;">🟢 POST</span> /webhook/openwa (Recepção do WhatsApp)
+        </div>
+        <p style="margin-top: 30px; font-size: 0.9em; color: #94a3b8;">Nota: O Dashboard visual do WhatsApp está rodando no seu Docker local (porta 2785).</p>
+      </body>
+    </html>
+  `);
+});
+
+// ==========================================
 // 1. ROTA DE MONITORAMENTO (HEALTH CHECK)
 // ==========================================
 app.get('/api/health', (req, res) => {
@@ -58,16 +78,13 @@ app.post('/webhook/openwa', async (req, res) => {
       // ==========================================
       
       // 1. Recupera ou cria o Lead no Funil (Firebase)
-      let lead = await firebaseService.getLead(phone);
-      if (!lead) {
-        lead = await firebaseService.createLead(phone);
-      }
+      const lead = await firebaseService.getOrCreateLead(phone);
       
       // Salva a mensagem do usuário no histórico
       await firebaseService.saveMessage(phone, text, 'user');
       
       // Puxa o histórico de contexto
-      const history = await firebaseService.getLeadHistory(phone);
+      const history = await firebaseService.getChatHistory(phone);
       
       // 2. Cérebro em Ação: O Gemini vai analisar o texto, o histórico e o estágio atual.
       // Ele tem autonomia para consultar o TinyERP ou mudar o funil antes de formular o texto final.
@@ -77,7 +94,7 @@ app.post('/webhook/openwa', async (req, res) => {
       await openwaService.sendMessage(phone, aiResponseText);
       
       // 4. Salva o que a IA respondeu no banco
-      await firebaseService.saveMessage(phone, aiResponseText, 'ai');
+      await firebaseService.saveMessage(phone, aiResponseText, 'bot');
       
     }
   } catch (error) {

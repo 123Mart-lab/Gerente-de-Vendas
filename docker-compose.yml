@@ -13,6 +13,17 @@ services:
     volumes:
       - openwa_data:/app/data # Persistência de dados (SQLite, Sessões, Logs)
 
+  redis:
+    image: redis:7-alpine
+    container_name: 123mart_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
 volumes:
   openwa_data:
     name: 123mart_openwa_data
+  redis_data:
+    name: 123mart_redis_data

@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   openwa:
-    image: ghcr.io/rmyndharis/openwa:v0.23.1
+    image: openwa/wa-automate:latest
     container_name: 123mart_openwa
     restart: unless-stopped
     ports:

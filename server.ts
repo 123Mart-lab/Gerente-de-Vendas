@@ -4,6 +4,10 @@ import express from 'express';
 import { firebaseService } from './src/services/firebase.js';
 import { aiService } from './src/services/ai.js';
 import { openwaService } from './src/services/openwa.js';
+import { whatsappQueue } from './src/queue/whatsappQueue.js';
+import './src/queue/whatsappWorker.js'; // Inicia o worker de triagem
+import './src/queue/salesWorker.js';    // Inicia o worker de vendas
+import './src/queue/supportWorker.js';  // Inicia o worker de suporte
 
 const app = express();
 const PORT = 3000;
@@ -68,33 +72,15 @@ app.post('/webhook/openwa', async (req, res) => {
         return;
       }
 
-      console.log(`\n[📥 Webhook] Mensagem recebida de ${phone}: "${text}"`);
+      console.log(`\n[📥 Webhook] Mensagem recebida de ${phone}. Empilhando na fila...`);
 
       // ==========================================
-      // PASSO 3 AQUI: 
-      // 1. Buscar/Criar Lead no Firebase
-      // 2. Chamar a IA (Gemini)
-      // 3. Devolver a resposta via POST na API do OpenWA
+      // PASSO 1: Delegação Segura (Fila BullMQ)
       // ==========================================
       
-      // 1. Recupera ou cria o Lead no Funil (Firebase)
-      const lead = await firebaseService.getOrCreateLead(phone);
-      
-      // Salva a mensagem do usuário no histórico
-      await firebaseService.saveMessage(phone, text, 'user');
-      
-      // Puxa o histórico de contexto
-      const history = await firebaseService.getChatHistory(phone);
-      
-      // 2. Cérebro em Ação: O Gemini vai analisar o texto, o histórico e o estágio atual.
-      // Ele tem autonomia para consultar o TinyERP ou mudar o funil antes de formular o texto final.
-      const aiResponseText = await aiService.generateResponse(phone, text, history, lead.pipelineStage);
-      
-      // 3. Responde via API Gateway (OpenWA)
-      await openwaService.sendMessage(phone, aiResponseText);
-      
-      // 4. Salva o que a IA respondeu no banco
-      await firebaseService.saveMessage(phone, aiResponseText, 'bot');
+      // Empurra o payload para o Redis.
+      // O Gerente (Worker) puxará a mensagem automaticamente.
+      await whatsappQueue.add('process-lead', { phone, text });
       
     }
   } catch (error) {

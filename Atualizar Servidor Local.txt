@@ -3,6 +3,9 @@ ATUALIZAR SERVIDOR:
 git pull origin main
 npm run dev
 
+(simulador)
+npx tsx src/lab/simulador.ts 
+
 ENVIAR GITHUB:
 git add .
 git commit -m "feat(core): implementacao completa da arquitetura de filas BullMQ com Webhooks e Workers"

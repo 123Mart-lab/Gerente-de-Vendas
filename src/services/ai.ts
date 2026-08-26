@@ -75,7 +75,7 @@ export const aiService = {
     try {
       // 4. Primeira chamada da API do Gemini injetando as Ferramentas (Tools)
       let response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.6-flash',
         contents,
         config: {
           systemInstruction,
@@ -103,13 +103,14 @@ export const aiService = {
           toolResult = { mensagem_sistema: `Etapa do CRM atualizada com sucesso para ${novaEtapa}. Formule a resposta final ao cliente considerando que o funil evoluiu.` };
         }
 
-        // Devolve o resultado da ferramenta para o histórico (obrigatório pelo SDK)
-        contents.push({ role: 'model', parts: [{ functionCall: call }] });
+        // Devolve o resultado da ferramenta para o histórico preservando o thought_signature e outros parts
+        const originalParts = response.candidates?.[0]?.content?.parts || [{ functionCall: call }];
+        contents.push({ role: 'model', parts: originalParts });
         contents.push({ role: 'user', parts: [{ functionResponse: { name: call.name, response: toolResult } }] });
 
         // 6. Rechama o Gemini com o contexto atualizado para ele gerar a resposta final em texto
         response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
+          model: 'gemini-3.6-flash',
           contents,
           config: { systemInstruction, tools: crmTools, temperature: 0.1 }
         });

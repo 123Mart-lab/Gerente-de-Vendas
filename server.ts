@@ -6,7 +6,7 @@ import { firebaseService } from './src/services/firebase.js';
 import { aiService } from './src/services/ai.js';
 import { openwaService } from './src/services/openwa.js';
 
-import { whatsappQueue } from './src/queue/whatsappQueue.js';
+import { whatsappQueue, salesQueue, supportQueue } from './src/queue/whatsappQueue.js';
 import './src/queue/whatsappWorker.js'; // Inicia o worker de triagem
 import './src/queue/salesWorker.js';    // Inicia o worker de vendas
 import './src/queue/supportWorker.js';  // Inicia o worker de suporte
@@ -18,6 +18,48 @@ app.use(express.json({ limit: '50mb' }));
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', role: '123Mart Brain API' });
+});
+
+// API Routes para o Dashboard
+app.get('/api/stats', async (req, res) => {
+  try {
+    // Busca métricas do BullMQ e do Firebase (Mockado para o frontend inicial)
+    res.json({
+      activeWorkers: 3,
+      messagesQueued: await whatsappQueue.getWaitingCount(),
+      messagesProcessed: await whatsappQueue.getCompletedCount(),
+      salesConversations: await salesQueue.getWaitingCount() + await salesQueue.getActiveCount(),
+      supportConversations: await supportQueue.getWaitingCount() + await supportQueue.getActiveCount()
+    });
+  } catch (error) {
+    // Retorna valores zerados se o Redis não estiver disponível para evitar crash no frontend
+    res.json({
+      activeWorkers: 0,
+      messagesQueued: 0,
+      messagesProcessed: 0,
+      salesConversations: 0,
+      supportConversations: 0
+    });
+  }
+});
+
+app.post('/api/settings', (req, res) => {
+  // Recebe as configurações de tempo entre envios
+  console.log('Novas configurações recebidas:', req.body);
+  res.json({ success: true });
+});
+
+app.post('/api/whatsapp/check-number', async (req, res) => {
+  try {
+    const { phone } = req.body;
+    if (!phone) {
+      return res.status(400).json({ error: 'Número não fornecido' });
+    }
+    const hasWhatsapp = await openwaService.checkNumberStatus(phone);
+    res.json({ phone, hasWhatsapp });
+  } catch (error) {
+    res.status(500).json({ error: 'Falha ao verificar' });
+  }
 });
 
 // ==========================================
@@ -55,12 +97,34 @@ app.post('/webhook/openwa', async (req, res) => {
 });
 
 // ==========================================
-// INICIALIZAÇÃO DO CÉREBRO
+// INICIALIZAÇÃO DO CÉREBRO & VITE FRONTEND
 // ==========================================
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`
-  🧠 [123MART BRAIN API] Inicializada com sucesso!
-  📡 Escutando Webhooks na porta: ${PORT}
-  🔗 Rota de Webhook: POST http://localhost:3000/webhook/openwa
-  `);
-});
+import { createServer as createViteServer } from 'vite';
+
+async function startServer() {
+  if (process.env.NODE_ENV !== 'production') {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  } else {
+    // Para produção
+    const path = await import('path');
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
+
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`
+    🧠 [123MART BRAIN API] Inicializada com sucesso!
+    📡 Escutando Webhooks na porta: ${PORT}
+    🔗 Rota de Webhook: POST http://localhost:3000/webhook/openwa
+    `);
+  });
+}
+
+startServer();

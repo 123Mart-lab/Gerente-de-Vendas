@@ -19,13 +19,14 @@ export default function ProductOptimizer() {
   const [seoResult, setSeoResult] = useState<any>(null);
 
   const [showHtmlPreview, setShowHtmlPreview] = useState(true);
+  const [autoPilot, setAutoPilot] = useState(false);
   const [selectedFields, setSelectedFields] = useState({
     title: true,
     metaDescription: true,
     brand: true,
     tags: true,
     url: false,
-    seoTitle: false,
+    seoTitle: true,
     description: true
   });
 
@@ -79,13 +80,14 @@ export default function ProductOptimizer() {
       setSeoResult(response.data.otimizado);
       setOptimized(true);
       
-      // Reset toggles to all true when new optimization comes
+      // Reset toggles to correct defaults when new optimization comes
       setSelectedFields({
         title: true,
         metaDescription: true,
         brand: true,
         tags: true,
-        url: true,
+        url: false,
+        seoTitle: true,
         description: true
       });
     } catch (error) {
@@ -145,14 +147,24 @@ export default function ProductOptimizer() {
         </div>
         
         {/* Toggle Piloto Automático */}
-        <div className="flex items-center gap-3 bg-white border border-slate-200 px-4 py-2 rounded-lg opacity-70">
+        <div className={`flex items-center gap-3 border px-4 py-2 rounded-lg transition-colors ${autoPilot ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-slate-200 opacity-80'}`}>
           <div className="flex flex-col text-right">
-            <span className="text-sm font-semibold text-slate-700">Piloto Automático</span>
-            <span className="text-xs text-amber-500 font-medium">Em breve (Fase de Testes)</span>
+            <span className={`text-sm font-semibold ${autoPilot ? 'text-indigo-700' : 'text-slate-700'}`}>Piloto Automático</span>
+            <span className={`text-xs font-medium ${autoPilot ? 'text-indigo-500' : 'text-slate-400'}`}>
+              {autoPilot ? 'Ativado (Processamento em Lote)' : 'Desativado'}
+            </span>
           </div>
-          <div className="w-10 h-6 bg-slate-200 rounded-full cursor-not-allowed">
-            <div className="w-4 h-4 bg-white rounded-full mt-1 ml-1"></div>
-          </div>
+          <button 
+            onClick={() => {
+              setAutoPilot(!autoPilot);
+              if (!autoPilot) {
+                alert('Piloto Automático Ativado! As regras de segurança (URL e Título SEO inalterados) serão rigorosamente aplicadas em otimizações em massa.');
+              }
+            }}
+            className={`w-10 h-6 rounded-full transition-colors flex items-center px-1 ${autoPilot ? 'bg-indigo-600 justify-end' : 'bg-slate-200 justify-start'}`}
+          >
+            <div className="w-4 h-4 bg-white rounded-full shadow-sm"></div>
+          </button>
         </div>
       </div>
 

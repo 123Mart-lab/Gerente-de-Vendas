@@ -18,6 +18,7 @@ export default function ProductOptimizer() {
   const [originalProduct, setOriginalProduct] = useState<any>(null);
   const [seoResult, setSeoResult] = useState<any>(null);
 
+  const [showHtmlPreview, setShowHtmlPreview] = useState(true);
   const [selectedFields, setSelectedFields] = useState({
     title: true,
     metaDescription: true,
@@ -280,6 +281,30 @@ export default function ProductOptimizer() {
               </div>
             </div>
 
+            
+            {/* Linha: SEO Title */}
+            <div className="grid grid-cols-1 md:grid-cols-2 border-b border-slate-200">
+              <div className="p-5 border-r border-slate-200 bg-white">
+                <label className="text-xs font-semibold text-slate-400 uppercase block mb-2 tracking-wider">Título SEO Original</label>
+                <p className="text-sm text-slate-800">
+                  {typeof originalProduct?.seo_title === 'string' ? originalProduct?.seo_title : (originalProduct?.seo_title?.pt || <span className="text-slate-400 italic">Vazio (Usa o Título Padrão)</span>)}
+                </p>
+              </div>
+              <div className="p-5 bg-emerald-50/30 flex flex-col gap-4">
+                <div className="p-3 rounded-lg border border-slate-200 bg-slate-50 opacity-60">
+                   <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                      <CheckSquare2 className="w-4 h-4 text-emerald-600" />
+                      Título SEO (Otimizado)
+                    </label>
+                  </div>
+                  <div className="text-sm text-slate-500 italic mb-1">
+                    (Nota: O Novo Título Otimizado acima será salvo tanto como Título do Produto quanto como Título SEO).
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* Linha: Marca e Tags */}
             <div className="grid grid-cols-1 md:grid-cols-2 border-b border-slate-200">
               <div className="p-5 border-r border-slate-200 bg-white flex flex-col gap-4">
@@ -383,15 +408,37 @@ export default function ProductOptimizer() {
                     </label>
                   </div>
                   
-                  {/* Container duplo para visual e codigo (pra ficar simples, vamos manter um textarea pra editar, mas com opcao de preview seria ideal. Como o tempo é curto, focamos no HTML limpo) */}
-                  <textarea
-                    disabled={!selectedFields.description}
-                    value={seoResult?.novaDescricaoHtml || ''}
-                    onChange={(e) => setSeoResult({...seoResult, novaDescricaoHtml: e.target.value})}
-                    className="w-full flex-1 min-h-[400px] text-sm text-slate-800 p-3 bg-slate-50 border border-slate-200 rounded focus:outline-none focus:border-emerald-400 focus:ring-1 font-mono resize-y disabled:bg-slate-100 disabled:text-slate-500"
-                  />
+                  {/* Container duplo para visual e codigo */}
+                  <div className="flex items-center gap-2 mb-2">
+                    <button 
+                      onClick={() => setShowHtmlPreview(true)}
+                      className={`text-xs px-3 py-1 rounded ${showHtmlPreview ? 'bg-emerald-100 text-emerald-700 font-medium' : 'bg-slate-100 text-slate-500'}`}
+                    >
+                      Modo Visual
+                    </button>
+                    <button 
+                      onClick={() => setShowHtmlPreview(false)}
+                      className={`text-xs px-3 py-1 rounded ${!showHtmlPreview ? 'bg-emerald-100 text-emerald-700 font-medium' : 'bg-slate-100 text-slate-500'}`}
+                    >
+                      Código HTML
+                    </button>
+                  </div>
+
+                  {showHtmlPreview ? (
+                    <div 
+                      className="w-full flex-1 min-h-[400px] text-sm text-slate-800 p-4 bg-white border border-slate-200 rounded prose prose-sm max-w-none overflow-y-auto"
+                      dangerouslySetInnerHTML={renderHTML(seoResult?.novaDescricaoHtml || '')} 
+                    />
+                  ) : (
+                    <textarea
+                      disabled={!selectedFields.description}
+                      value={seoResult?.novaDescricaoHtml || ''}
+                      onChange={(e) => setSeoResult({...seoResult, novaDescricaoHtml: e.target.value})}
+                      className="w-full flex-1 min-h-[400px] text-sm text-slate-800 p-3 bg-slate-50 border border-slate-200 rounded focus:outline-none focus:border-emerald-400 focus:ring-1 font-mono resize-y disabled:bg-slate-100 disabled:text-slate-500"
+                    />
+                  )}
                   <div className="mt-2 text-xs text-slate-500">
-                    (Edite o código HTML acima se necessário. As tags serão renderizadas na loja.)
+                    (Alternar para Código HTML permite edição manual antes de salvar).
                   </div>
                 </div>
               </div>

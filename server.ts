@@ -172,6 +172,14 @@ app.get('/api/marketing/products', async (req, res) => {
       creds = await firebaseService.getNuvemshopCredentials();
     } catch (err) {}
     
+    // FALLBACK IF FIREBASE FAILS BUT ENV VARS EXIST
+    if (!creds && process.env.NUVEMSHOP_ACCESS_TOKEN && process.env.NUVEMSHOP_STORE_ID) {
+      creds = { 
+        accessToken: process.env.NUVEMSHOP_ACCESS_TOKEN, 
+        storeId: process.env.NUVEMSHOP_STORE_ID 
+      };
+    }
+    
     if (!creds) {
       return res.json([
         { id: 'mock-123', name: 'FACA DE ACO INOXIDAVEL C/ CABO PLASTICO 12" LINHA TOP CHEF' },
@@ -215,8 +223,16 @@ app.post('/api/marketing/optimize', async (req, res) => {
     } catch (err: any) {
       console.warn('⚠️ Erro ao acessar Firebase (Mock ativado):', err.message);
     }
-    let produto;
     
+    // FALLBACK IF FIREBASE FAILS BUT ENV VARS EXIST
+    if (!creds && process.env.NUVEMSHOP_ACCESS_TOKEN && process.env.NUVEMSHOP_STORE_ID) {
+      creds = { 
+        accessToken: process.env.NUVEMSHOP_ACCESS_TOKEN, 
+        storeId: process.env.NUVEMSHOP_STORE_ID 
+      };
+    }
+    
+    let produto;
     if (!creds) {
       console.log('⚠️ Nuvemshop não conectada. Retornando produto MOCK para testar a IA.');
       produto = {
@@ -295,6 +311,10 @@ app.post('/api/marketing/save', async (req, res) => {
         try {
           creds = await firebaseService.getNuvemshopCredentials();
         } catch (err) {}
+        
+        if (!creds && process.env.NUVEMSHOP_ACCESS_TOKEN && process.env.NUVEMSHOP_STORE_ID) {
+          creds = { accessToken: process.env.NUVEMSHOP_ACCESS_TOKEN, storeId: process.env.NUVEMSHOP_STORE_ID };
+        }
         
         if (creds) {
           const { default: axios } = await import('axios');

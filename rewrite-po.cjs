@@ -1,4 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+const fs = require('fs');
+
+const code = `import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { Search, Sparkles, RefreshCw, LayoutTemplate, Save } from 'lucide-react';
 
@@ -269,7 +271,7 @@ export default function ProductOptimizer() {
               <div className="p-5 border-r border-slate-200 bg-white">
                 <label className="text-xs font-semibold text-slate-400 uppercase block mb-2 tracking-wider">URL Original</label>
                 <p className="text-sm text-slate-800 break-all">
-                  {originalProduct?.handle ? `.../produtos/${originalProduct.handle}` : <span className="text-slate-400 italic">Sem URL amigável</span>}
+                  {originalProduct?.handle ? \`.../produtos/\${originalProduct.handle}\` : <span className="text-slate-400 italic">Sem URL amigável</span>}
                 </p>
               </div>
               <div className="p-5 bg-emerald-50/30">
@@ -332,3 +334,6 @@ export default function ProductOptimizer() {
     </div>
   );
 }
+`;
+
+fs.writeFileSync('src/components/marketing/ProductOptimizer.tsx', code);

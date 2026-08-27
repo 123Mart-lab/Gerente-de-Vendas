@@ -79,6 +79,15 @@ app.post('/api/whatsapp/check-number', async (req, res) => {
 // ==========================================
 // ROTA OAUTH NUVEMSHOP (INSTALAÇÃO)
 // ==========================================
+app.get('/api/auth/install', (req, res) => {
+  const clientId = process.env.NUVEMSHOP_CLIENT_ID;
+  if (!clientId) {
+    return res.status(500).send('ERRO: NUVEMSHOP_CLIENT_ID não configurado no .env');
+  }
+  const redirectUri = 'https://www.tiendanube.com/apps/' + clientId + '/authorize';
+  res.redirect(redirectUri);
+});
+
 app.get('/api/auth/callback', async (req, res) => {
   const code = req.query.code as string;
   if (!code) {
@@ -106,8 +115,20 @@ app.get('/api/auth/callback', async (req, res) => {
     const { access_token, user_id } = response.data;
     const storeId = String(user_id);
 
-    // Salvar no Firebase em segurança
-    await firebaseService.saveNuvemshopCredentials(storeId, access_token);
+    // EXIBIR TOKEN NO TERMINAL PARA O USUÁRIO COPIAR
+    console.log('\n\n======================================================');
+    console.log('✅ SUCESSO! NUVEMSHOP AUTENTICADA!');
+    console.log('Copie os valores abaixo e cole no seu arquivo .env:');
+    console.log('NUVEMSHOP_ACCESS_TOKEN="' + access_token + '"');
+    console.log('NUVEMSHOP_STORE_ID="' + storeId + '"');
+    console.log('======================================================\n\n');
+
+    // Tentar Salvar no Firebase em segurança (pode falhar se Firebase estiver mal configurado)
+    try {
+      await firebaseService.saveNuvemshopCredentials(storeId, access_token);
+    } catch (firebaseErr) {
+      console.error('Aviso: Não foi possível salvar no Firebase, mas o token foi gerado no terminal!', firebaseErr.message);
+    }
 
     res.send(`
       <html>

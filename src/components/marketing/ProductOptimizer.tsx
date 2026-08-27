@@ -20,7 +20,8 @@ export default function ProductOptimizer() {
       setOptimized(true);
     } catch (error) {
       console.error('Erro na otimização:', error);
-      alert('Erro ao otimizar produto. Verifique se a loja possui esse produto ou se as credenciais são válidas.');
+      console.error('API Error');
+      setOptimized(false);
     } finally {
       setIsOptimizing(false);
     }
@@ -74,14 +75,14 @@ export default function ProductOptimizer() {
               <div>
                 <label className="text-xs font-medium text-slate-500 uppercase">Título Original</label>
                 <p className="text-sm text-slate-800 mt-1 p-2 bg-slate-50 rounded border border-slate-100">
-                  {originalProduct?.name || "..."}
+                  {typeof originalProduct?.name === 'string' ? originalProduct?.name : (originalProduct?.name?.pt || '...')}
                 </p>
               </div>
               
               <div>
                 <label className="text-xs font-medium text-slate-500 uppercase">Descrição Atual</label>
                 <p className="text-sm text-slate-800 mt-1 p-2 bg-slate-50 rounded border border-slate-100 italic text-slate-400">
-                  {originalProduct?.description || "..."}
+                  {typeof originalProduct?.description === 'string' ? originalProduct?.description : (originalProduct?.description?.pt || '...')}
                 </p>
               </div>
 

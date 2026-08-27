@@ -166,30 +166,42 @@ app.post('/webhook/openwa', async (req, res) => {
 app.post('/api/marketing/optimize', async (req, res) => {
   try {
     const { productId, query } = req.body;
-    const creds = await firebaseService.getNuvemshopCredentials();
-    if (!creds) {
-      return res.status(403).json({ error: 'Nuvemshop não conectada' });
+    let creds = null;
+    try {
+      creds = await firebaseService.getNuvemshopCredentials();
+    } catch (err: any) {
+      console.warn('⚠️ Erro ao acessar Firebase (Mock ativado):', err.message);
     }
-    
-    const { default: axios } = await import('axios');
-    const { storeId, accessToken } = creds;
-    
-    // Busca o produto (por ID ou Query)
-    const API_URL = `https://api.nuvemshop.com.br/v1/${storeId}`;
     let produto;
     
-    if (productId) {
-      const response = await axios.get(`${API_URL}/products/${productId}`, {
-        headers: { 'Authentication': `bearer ${accessToken}`, 'User-Agent': '123Mart AI Assistant' }
-      });
-      produto = response.data;
-    } else if (query) {
-      const response = await axios.get(`${API_URL}/products`, {
-        headers: { 'Authentication': `bearer ${accessToken}`, 'User-Agent': '123Mart AI Assistant' },
-        params: { q: query, per_page: 1 }
-      });
-      if (response.data && response.data.length > 0) {
-        produto = response.data[0];
+    if (!creds) {
+      console.log('⚠️ Nuvemshop não conectada. Retornando produto MOCK para testar a IA.');
+      produto = {
+        id: 'mock-123',
+        name: query || 'FACA DE ACO INOXIDAVEL C/ CABO PLASTICO 12" LINHA TOP CHEF',
+        variants: [{ price: '99.90' }],
+        description: { pt: '' }
+      };
+    } else {
+      const { default: axios } = await import('axios');
+      const { storeId, accessToken } = creds;
+      
+      // Busca o produto (por ID ou Query)
+      const API_URL = `https://api.nuvemshop.com.br/v1/${storeId}`;
+      
+      if (productId) {
+        const response = await axios.get(`${API_URL}/products/${productId}`, {
+          headers: { 'Authentication': `bearer ${accessToken}`, 'User-Agent': '123Mart AI Assistant' }
+        });
+        produto = response.data;
+      } else if (query) {
+        const response = await axios.get(`${API_URL}/products`, {
+          headers: { 'Authentication': `bearer ${accessToken}`, 'User-Agent': '123Mart AI Assistant' },
+          params: { q: query, per_page: 1 }
+        });
+        if (response.data && response.data.length > 0) {
+          produto = response.data[0];
+        }
       }
     }
     
@@ -200,9 +212,9 @@ app.post('/api/marketing/optimize', async (req, res) => {
     // Simplifica o payload para a IA
     const payload = {
       id: produto.id,
-      name: produto.name?.pt || produto.name,
+      name: produto.name?.pt ?? (typeof produto.name === 'string' ? produto.name : ''),
       price: produto.variants?.[0]?.price,
-      description: produto.description?.pt || produto.description || ''
+      description: produto.description?.pt ?? (typeof produto.description === 'string' ? produto.description : '')
     };
     
     const otimizacao = await aiService.generateProductSEO(payload);

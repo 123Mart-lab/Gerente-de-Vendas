@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { Search, Sparkles, RefreshCw, LayoutTemplate, Save } from 'lucide-react';
+import { Search, Sparkles, RefreshCw, LayoutTemplate, Save, CheckCircle2 } from 'lucide-react';
 
 export default function ProductOptimizer() {
   const [isOptimizing, setIsOptimizing] = useState(false);

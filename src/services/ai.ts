@@ -123,24 +123,54 @@ export const aiService = {
     }
   },
   async generateProductSEO(productData: any) {
-    const systemInstruction = "Você é um Copywriter e Especialista em SEO Sênior (nível Pro). Seu trabalho é ler os dados técnicos de um produto e transformá-los em descrições extremamente persuasivas, focadas em conversão, desejo e ranqueamento no Google Shopping. Escreva em tom comercial refinado. Formate a descrição HTML usando <h3>, <strong>, <ul> e <li> para facilitar a leitura. Use SEMPRE o gatilho de autoridade final exatamente assim: '<p>🔥 <strong>Vantagens 123Mart:</strong> Compre agora com o melhor preço da internet e receba rápido! Nosso despacho é garantido em até <strong>24 horas</strong> após a aprovação.</p>'. Retorne os dados ESTRITAMENTE em formato JSON.";
+    const systemInstruction = `Você é um Especialista em E-commerce e Analista de SEO Sênior. Seu trabalho é avaliar os dados do produto, atribuir notas de qualidade e transformar esses dados em descrições extremamente INFORMATIVAS, TÉCNICAS e OBJETIVAS.
+
+A sua premissa principal é: "O cliente que lê a descrição já foi atraído pelas fotos; ele agora busca informações técnicas e lógicas para justificar a compra".
+
+REGRA ABSOLUTA 1: NENHUM EMOJI PODE SER USADO NA DESCRIÇÃO. Marketplaces (como Mercado Livre) bloqueiam integrações via API que contêm emojis. É ESTRITAMENTE PROIBIDO gerar emojis.
+REGRA ABSOLUTA 2: NÃO USE tags HTML. Use formato Plain Text (letras MAIÚSCULAS para títulos de seção, hifens para listas e quebras de linha duplas para separar blocos).
+
+Siga RIGOROSAMENTE esta estrutura de informação técnica (Padrão Ouro de Conversão pela Lógica: 20% Persuasão, 50% Informação, 30% Segurança):
+1. Título Atrativo: Claro, focado no produto e contendo a palavra-chave principal (Retorne no campo "novoTitulo").
+2. Gancho Inicial (Persuasão 20%): Uma frase objetiva informando o que é o produto. APROVEITE ESTA SEÇÃO PARA INJETAR CAUDAS LONGAS E PALAVRAS-CHAVE DE SEO DE FORMA NATURAL para agradar os algoritmos de busca. ATENÇÃO: NÃO ESCREVA AS PALAVRAS "GANCHO INICIAL" no texto final, apenas escreva a frase diretamente no início da descrição.
+3. Descrição Técnica e Durabilidade (Informação 50%): O que o produto faz, materiais, resistência e expectativa de durabilidade.
+4. Instruções de Uso (Informação 50%): Passo a passo prático, claro e direto.
+5. Especificações Técnicas, Segurança e Validade (Segurança 30%): Ficha técnica completa, medidas exatas, alertas, voltagem, composição, FISPQ.
+6. Garantia, Devolução e Envio (Segurança 30%): Prazos de garantia, devolução e regras de envio.
+7. Perguntas Frequentes (FAQ): Dúvidas técnicas (compatibilidade, limpeza, etc).
+
+SUA SEGUNDA TAREFA É AVALIAR O SEO E DAR NOTAS COMPARATIVAS (0 a 100):
+- scoreTituloOriginal: Qual a nota de SEO do título original?
+- scoreTituloNovo: Qual a nota de SEO do título otimizado que você criou?
+- scoreDescricaoOriginal: Qual a nota da descrição original? Baseie a nota na proporção áurea (20% persuasão, 50% informação técnica, 30% segurança).
+- scoreDescricaoNova: Qual a nota da sua nova descrição? (Deve ser sempre maior que a original, próximo a 100).
+- dicasMelhoria (Array de Strings): Diga ao lojista quais dados TÉCNICOS faltaram no original e que ele precisa providenciar no ERP para o futuro (ex: "Falta informar o material", "Insira a ficha FISPQ").
+
+Retorne os dados ESTRITAMENTE em formato JSON puro.`;
     
-    const prompt = `Analise este produto e deduza o público-alvo, tags de busca, e crie uma URL amigável. SE o produto já tiver uma Marca Original cadastrada, OBRIGATORIAMENTE use a mesma marca (não invente uma nova). Gere as otimizações de SEO e copy.
+    const prompt = `Analise este produto, deduza o público-alvo e as tags de SEO. Avalie os dados originais e gere os scores e dicas. Em seguida, crie uma descrição altamente técnica, informativa, SEM EMOJIS e com forte injeção de SEO no gancho inicial. SE o produto já tiver uma Marca Original cadastrada, OBRIGATORIAMENTE use a mesma marca.
+
 Produto original:
 Nome: ${productData.name}
 Preço: ${productData.price}
 Marca Original: ${productData.brand || 'Não cadastrada'}
 Tags Originais: ${productData.tags || 'Sem tags'}
 Descrição Original: ${productData.description || 'Sem descrição'}
+
 Formato obrigatório de retorno (JSON puro):
 {
-  "novoTitulo": "Faca de Aço Inox Profissional 12\\" Top Chef",
-  "metaDescription": "Eleve o nível da sua cozinha...",
-  "publicoAlvo": "Cozinheiros amadores, Chefs...",
-  "tags": "Faca Inox, Churrasco, Utensílios de Cozinha, Faca do Chef",
-  "marca": "Home&More",
-  "urlProduto": "faca-de-aco-inoxidavel-c-cabo-plastico-12",
-  "novaDescricaoHtml": "<p><strong>Domine a sua cozinha...</strong></p><ul><li>...</li></ul><p>🔥 <strong>Vantagens 123Mart:</strong> Compre agora com o melhor preço da internet e receba rápido! Nosso despacho é garantido em até <strong>24 horas</strong> após a aprovação.</p>"
+  "novoTitulo": "NOME ATRATIVO COM PALAVRA CHAVE",
+  "metaDescription": "Resumo persuasivo de 150 caracteres...",
+  "publicoAlvo": "Descreva o público alvo principal",
+  "tags": "tag1, tag2, tag longa, palavra-chave",
+  "marca": "Marca do Produto",
+  "urlProduto": "nome-atrativo-separado-por-hifens",
+  "novaDescricaoHtml": "GANCHO INICIAL AQUI (COM PALAVRAS-CHAVE SEO)\\n\\nDESCRIÇÃO TÉCNICA E DURABILIDADE\\n\\n- Benefício 1...\\n- Benefício 2...\\n\\nINSTRUÇÕES DE USO\\n\\n1. Passo 1...\\n\\nESPECIFICAÇÕES TÉCNICAS E SEGURANÇA\\n\\n- Peso...\\n\\nGARANTIA, DEVOLUÇÃO E ENVIO\\n\\n- Garantia de fábrica...\\n- Devolução de 7 dias...\\n- Envio em 24h...\\n\\nPERGUNTAS FREQUENTES (FAQ)\\n\\n1. Pergunta 1?\\nResposta direta...",
+  "scoreTituloOriginal": 40,
+  "scoreTituloNovo": 98,
+  "scoreDescricaoOriginal": 30,
+  "scoreDescricaoNova": 100,
+  "dicasMelhoria": ["Falta informar o material", "Adicione a Ficha Técnica / FISPQ", "Informe a garantia do fabricante"]
 }`;
 
     try {

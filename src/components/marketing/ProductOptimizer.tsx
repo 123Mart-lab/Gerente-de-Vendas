@@ -24,7 +24,8 @@ export default function ProductOptimizer() {
     metaDescription: true,
     brand: true,
     tags: true,
-    url: true,
+    url: false,
+    seoTitle: false,
     description: true
   });
 
@@ -102,9 +103,11 @@ export default function ProductOptimizer() {
       // Build the final payload depending on what is toggled ON
       const finalData: any = {};
       if (selectedFields.title) finalData.novoTitulo = seoResult?.novoTitulo;
+      if (selectedFields.seoTitle) finalData.novoTituloSeo = seoResult?.novoTitulo;
       if (selectedFields.metaDescription) finalData.metaDescription = seoResult?.metaDescription;
       if (selectedFields.brand) finalData.marca = seoResult?.marca;
       if (selectedFields.tags) finalData.tags = seoResult?.tags;
+      
       if (selectedFields.url) finalData.urlProduto = seoResult?.urlProduto;
       if (selectedFields.description) finalData.novaDescricaoHtml = seoResult?.novaDescricaoHtml;
 
@@ -241,9 +244,14 @@ export default function ProductOptimizer() {
             <div className="grid grid-cols-1 md:grid-cols-2 border-b border-slate-200">
               <div className="p-5 border-r border-slate-200 bg-white">
                 <label className="text-xs font-semibold text-slate-400 uppercase block mb-2 tracking-wider">Título Original</label>
-                <p className="text-sm text-slate-800 mb-6">
+                <p className="text-sm text-slate-800 mb-2">
                   {typeof originalProduct?.name === 'string' ? originalProduct?.name : (originalProduct?.name?.pt || <span className="text-slate-400 italic">Vazio</span>)}
                 </p>
+                {seoResult?.scoreTituloOriginal !== undefined && (
+                  <div className="inline-flex items-center mt-2 px-2 py-1 rounded bg-slate-100 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                    Nota de SEO: {seoResult.scoreTituloOriginal}%
+                  </div>
+                )}
               </div>
               <div className="p-5 bg-emerald-50/30 flex flex-col gap-4">
                 {/* Checkbox Titulo */}
@@ -253,6 +261,11 @@ export default function ProductOptimizer() {
                       {selectedFields.title ? <CheckSquare2 className="w-4 h-4 text-emerald-600" /> : <Square className="w-4 h-4 text-slate-400" />}
                       Novo Título Otimizado
                     </label>
+                    {seoResult?.scoreTituloNovo !== undefined && (
+                      <div className="inline-flex items-center px-2 py-1 rounded bg-emerald-100 text-[10px] font-bold text-emerald-700 uppercase tracking-wider">
+                        Nota de SEO: {seoResult.scoreTituloNovo}%
+                      </div>
+                    )}
                   </div>
                   <input
                     type="text"
@@ -291,15 +304,15 @@ export default function ProductOptimizer() {
                 </p>
               </div>
               <div className="p-5 bg-emerald-50/30 flex flex-col gap-4">
-                <div className="p-3 rounded-lg border border-slate-200 bg-slate-50 opacity-60">
-                   <div className="flex items-center justify-between mb-2">
-                    <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-                      <CheckSquare2 className="w-4 h-4 text-emerald-600" />
+                <div className={`p-3 rounded-lg border ${selectedFields.seoTitle ? 'border-emerald-200 bg-white' : 'border-slate-200 bg-slate-50 opacity-60'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-semibold text-emerald-600/70 uppercase tracking-wider cursor-pointer flex items-center gap-2" onClick={() => toggleField('seoTitle')}>
+                      {selectedFields.seoTitle ? <CheckSquare2 className="w-4 h-4 text-emerald-600" /> : <Square className="w-4 h-4 text-slate-400" />}
                       Título SEO (Otimizado)
                     </label>
                   </div>
                   <div className="text-sm text-slate-500 italic mb-1">
-                    (Nota: O Novo Título Otimizado acima será salvo tanto como Título do Produto quanto como Título SEO).
+                    Ao marcar esta opção, o novo título otimizado gerado pela IA (visto acima) também será aplicado como o Título SEO do produto na Nuvemshop.
                   </div>
                 </div>
               </div>
@@ -358,15 +371,15 @@ export default function ProductOptimizer() {
               </div>
             </div>
 
-            {/* Linha: URL */}
+            {/* Linha: URL Amigável */}
             <div className="grid grid-cols-1 md:grid-cols-2 border-b border-slate-200">
               <div className="p-5 border-r border-slate-200 bg-white">
                 <label className="text-xs font-semibold text-slate-400 uppercase block mb-2 tracking-wider">URL Original</label>
-                <p className="text-sm text-slate-800 break-all">
-                  {originalProduct?.handle ? `.../produtos/${originalProduct.handle}` : <span className="text-slate-400 italic">Sem URL amigável</span>}
+                <p className="text-sm text-slate-800 font-mono break-all">
+                  .../produtos/{typeof originalProduct?.handle === 'string' ? originalProduct?.handle : (originalProduct?.handle?.pt || 'vazio')}
                 </p>
               </div>
-              <div className="p-5 bg-emerald-50/30">
+              <div className="p-5 bg-emerald-50/30 flex flex-col gap-4">
                 <div className={`p-3 rounded-lg border ${selectedFields.url ? 'border-emerald-200 bg-white' : 'border-slate-200 bg-slate-50 opacity-60'}`}>
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-xs font-semibold text-emerald-600/70 uppercase tracking-wider cursor-pointer flex items-center gap-2" onClick={() => toggleField('url')}>
@@ -384,6 +397,11 @@ export default function ProductOptimizer() {
                       className="w-full text-sm text-sky-700 font-mono p-2 bg-white border border-slate-200 rounded-r focus:outline-none focus:border-emerald-400 focus:ring-1 transition-colors disabled:bg-slate-100 disabled:text-slate-500"
                     />
                   </div>
+                  {!selectedFields.url && (
+                    <div className="mt-2 text-[10px] text-amber-600 font-medium">
+                      ⚠️ Sugestão desativada por padrão. Lembre-se de criar um redirecionamento 301 se alterar a URL.
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -398,6 +416,21 @@ export default function ProductOptimizer() {
                     typeof originalProduct?.description === 'string' ? originalProduct?.description : originalProduct?.description?.pt
                   )} 
                 />
+                {seoResult?.scoreDescricaoOriginal !== undefined && (
+                  <div className="pt-4 border-t border-slate-100 mt-4">
+                    <div className="inline-flex items-center px-2 py-1 rounded bg-slate-100 text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                      Nota de SEO (Qualidade Técnica): {seoResult.scoreDescricaoOriginal}%
+                    </div>
+                    {seoResult.dicasMelhoria && seoResult.dicasMelhoria.length > 0 && (
+                      <div className="bg-amber-50 border border-amber-200 rounded p-3 text-xs text-amber-800">
+                        <p className="font-semibold mb-1">⚠️ Faltam dados técnicos no ERP:</p>
+                        <ul className="list-disc pl-4 space-y-1 opacity-90">
+                          {seoResult.dicasMelhoria.map((dica: string, i: number) => <li key={i}>{dica}</li>)}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="p-5 bg-emerald-50/30 flex flex-col">
                 <div className={`p-3 rounded-lg border flex-1 flex flex-col ${selectedFields.description ? 'border-emerald-200 bg-white' : 'border-slate-200 bg-slate-50 opacity-60'}`}>
@@ -406,6 +439,11 @@ export default function ProductOptimizer() {
                       {selectedFields.description ? <CheckSquare2 className="w-4 h-4 text-emerald-600" /> : <Square className="w-4 h-4 text-slate-400" />}
                       Nova Descrição de Vendas (Copywriting)
                     </label>
+                    {seoResult?.scoreDescricaoNova !== undefined && (
+                      <div className="inline-flex items-center px-2 py-1 rounded bg-emerald-100 text-[10px] font-bold text-emerald-700 uppercase tracking-wider">
+                        Nota de SEO: {seoResult.scoreDescricaoNova}%
+                      </div>
+                    )}
                   </div>
                   
                   {/* Container duplo para visual e codigo */}
@@ -426,7 +464,7 @@ export default function ProductOptimizer() {
 
                   {showHtmlPreview ? (
                     <div 
-                      className="w-full flex-1 min-h-[400px] text-sm text-slate-800 p-4 bg-white border border-slate-200 rounded prose prose-sm max-w-none overflow-y-auto"
+                      className="w-full flex-1 min-h-[400px] text-sm text-slate-800 p-4 bg-white border border-slate-200 rounded prose prose-sm max-w-none overflow-y-auto whitespace-pre-wrap"
                       dangerouslySetInnerHTML={renderHTML(seoResult?.novaDescricaoHtml || '')} 
                     />
                   ) : (

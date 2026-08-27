@@ -323,7 +323,7 @@ app.post('/api/marketing/save', async (req, res) => {
     if (data.novoTitulo) updatePayload.name = { pt: data.novoTitulo };
     if (data.novaDescricaoHtml) updatePayload.description = { pt: data.novaDescricaoHtml };
     if (data.metaDescription) updatePayload.seo_description = data.metaDescription;
-    if (data.novoTitulo) updatePayload.seo_title = data.novoTitulo;
+    if (data.novoTituloSeo !== undefined) updatePayload.seo_title = data.novoTituloSeo;
     if (data.tags) updatePayload.tags = data.tags;
     if (data.marca) updatePayload.brand = data.marca;
     

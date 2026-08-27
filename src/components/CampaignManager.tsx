@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Settings2, Filter, Clock, ShieldAlert, 
-  RotateCw, Save, CalendarClock, MessageSquareReply
+  RotateCw, Save, CalendarClock, MessageSquareReply,
+  Flame, Info
 } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 
-type Tab = 'options' | 'filters';
+type Tab = 'options' | 'warmup' | 'filters';
 
 export default function CampaignManager() {
   const [activeTab, setActiveTab] = useState<Tab>('options');
@@ -16,6 +17,24 @@ export default function CampaignManager() {
     saveRules();
     setShowSaveModal(true);
     setTimeout(() => setShowSaveModal(false), 3000);
+  };
+
+  // Helper to adjust presets when phase changes
+  const applyWarmupPreset = (phase: string) => {
+    updateRule('warmupPhase', phase);
+    if (phase === 'critical') {
+      updateRule('warmupMessageCount', 15);
+      updateRule('warmupIntervalMin', 30);
+      updateRule('warmupIntervalMax', 60);
+    } else if (phase === 'warm') {
+      updateRule('warmupMessageCount', 40);
+      updateRule('warmupIntervalMin', 15);
+      updateRule('warmupIntervalMax', 30);
+    } else if (phase === 'traction') {
+      updateRule('warmupMessageCount', 100);
+      updateRule('warmupIntervalMin', 5);
+      updateRule('warmupIntervalMax', 15);
+    }
   };
 
   return (
@@ -31,7 +50,7 @@ export default function CampaignManager() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Regras de Disparo (Anti-Ban)</h2>
-          <p className="text-gray-500 mt-1">Configure as travas de segurança e a cadência para os disparos realizados pelos vendedores.</p>
+          <p className="text-gray-500 mt-1">Configure as travas de segurança, cadência e aquecimento para os disparos.</p>
         </div>
         <div className="flex gap-3">
           <button 
@@ -55,6 +74,14 @@ export default function CampaignManager() {
             }`}
           >
             <ShieldAlert className="w-4 h-4" /> Cadência & Anti-Ban
+          </button>
+          <button 
+            onClick={() => setActiveTab('warmup')} 
+            className={`flex items-center gap-2 px-6 py-4 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${
+              activeTab === 'warmup' ? 'border-orange-600 text-orange-600 bg-orange-50/50' : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <Flame className="w-4 h-4" /> Aquecimento de Chip (Warm-up)
           </button>
           <button 
             onClick={() => setActiveTab('filters')} 
@@ -211,7 +238,158 @@ export default function CampaignManager() {
             </div>
           )}
 
-          {/* TAB 2: FILTROS AVANÇADOS */}
+          {/* TAB 2: AQUECIMENTO DE CHIP (WARM-UP) */}
+          {activeTab === 'warmup' && (
+            <div className="max-w-4xl mx-auto space-y-6">
+              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-6">
+                
+                {/* Cabeçalho do Aquecimento */}
+                <div className="flex items-start justify-between bg-orange-50/50 p-4 rounded-lg border border-orange-100">
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider flex items-center gap-2 mb-1">
+                      <Flame className="w-4 h-4 text-orange-600" /> 
+                      Aquecimento Automático (Warm-up)
+                    </h3>
+                    <p className="text-sm text-gray-600 leading-relaxed">
+                      O aquecimento de chip instrui os vendedores (IA) a conversarem entre si para gerar histórico orgânico. 
+                      Isso previne banimentos em números recém-ativados ou recém-saídos de bloqueios.
+                    </p>
+                  </div>
+                  <div className="pt-2">
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" className="sr-only peer" checked={rules.warmupEnabled} onChange={(e) => updateRule('warmupEnabled', e.target.checked)} />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
+                      <span className="ml-3 text-sm font-bold text-gray-900">{rules.warmupEnabled ? 'ATIVADO' : 'DESATIVADO'}</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div className={`space-y-6 transition-opacity ${!rules.warmupEnabled ? 'opacity-50 pointer-events-none' : ''}`}>
+                  {/* Fases do Aquecimento (Editáveis) */}
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-800 mb-3">Fases e Cadência</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {/* Fase Crítica */}
+                      <div className="p-4 border border-gray-200 rounded-xl bg-gray-50/50 space-y-3">
+                        <div className="font-bold text-gray-900">Fase Crítica</div>
+                        <label className="flex justify-between items-center text-xs text-gray-700">
+                          Duração (dias):
+                          <input type="number" value={rules.warmupP1Days} onChange={e => updateRule('warmupP1Days', Number(e.target.value))} className="w-16 p-1 border border-gray-300 rounded text-center" />
+                        </label>
+                        <label className="flex justify-between items-center text-xs text-gray-700">
+                          Max Msgs/dia:
+                          <input type="number" value={rules.warmupP1MsgCount} onChange={e => updateRule('warmupP1MsgCount', Number(e.target.value))} className="w-16 p-1 border border-gray-300 rounded text-center" />
+                        </label>
+                        <div className="flex justify-between items-center text-xs text-gray-700">
+                          Intervalo (min):
+                          <div className="flex items-center gap-1">
+                            <input type="number" value={rules.warmupP1IntMin} onChange={e => updateRule('warmupP1IntMin', Number(e.target.value))} className="w-12 p-1 border border-gray-300 rounded text-center" />
+                            <span>-</span>
+                            <input type="number" value={rules.warmupP1IntMax} onChange={e => updateRule('warmupP1IntMax', Number(e.target.value))} className="w-12 p-1 border border-gray-300 rounded text-center" />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Fase Morna */}
+                      <div className="p-4 border border-gray-200 rounded-xl bg-gray-50/50 space-y-3">
+                        <div className="font-bold text-gray-900">Fase Morna</div>
+                        <label className="flex justify-between items-center text-xs text-gray-700">
+                          Duração (dias):
+                          <input type="number" value={rules.warmupP2Days} onChange={e => updateRule('warmupP2Days', Number(e.target.value))} className="w-16 p-1 border border-gray-300 rounded text-center" />
+                        </label>
+                        <label className="flex justify-between items-center text-xs text-gray-700">
+                          Max Msgs/dia:
+                          <input type="number" value={rules.warmupP2MsgCount} onChange={e => updateRule('warmupP2MsgCount', Number(e.target.value))} className="w-16 p-1 border border-gray-300 rounded text-center" />
+                        </label>
+                        <div className="flex justify-between items-center text-xs text-gray-700">
+                          Intervalo (min):
+                          <div className="flex items-center gap-1">
+                            <input type="number" value={rules.warmupP2IntMin} onChange={e => updateRule('warmupP2IntMin', Number(e.target.value))} className="w-12 p-1 border border-gray-300 rounded text-center" />
+                            <span>-</span>
+                            <input type="number" value={rules.warmupP2IntMax} onChange={e => updateRule('warmupP2IntMax', Number(e.target.value))} className="w-12 p-1 border border-gray-300 rounded text-center" />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Fase de Tração */}
+                      <div className="p-4 border border-gray-200 rounded-xl bg-gray-50/50 space-y-3">
+                        <div className="font-bold text-gray-900">Fase de Tração</div>
+                        <label className="flex justify-between items-center text-xs text-gray-700">
+                          Duração (dias):
+                          <input type="number" value={rules.warmupP3Days} onChange={e => updateRule('warmupP3Days', Number(e.target.value))} className="w-16 p-1 border border-gray-300 rounded text-center" />
+                        </label>
+                        <label className="flex justify-between items-center text-xs text-gray-700">
+                          Max Msgs/dia:
+                          <input type="number" value={rules.warmupP3MsgCount} onChange={e => updateRule('warmupP3MsgCount', Number(e.target.value))} className="w-16 p-1 border border-gray-300 rounded text-center" />
+                        </label>
+                        <div className="flex justify-between items-center text-xs text-gray-700">
+                          Intervalo (min):
+                          <div className="flex items-center gap-1">
+                            <input type="number" value={rules.warmupP3IntMin} onChange={e => updateRule('warmupP3IntMin', Number(e.target.value))} className="w-12 p-1 border border-gray-300 rounded text-center" />
+                            <span>-</span>
+                            <input type="number" value={rules.warmupP3IntMax} onChange={e => updateRule('warmupP3IntMax', Number(e.target.value))} className="w-12 p-1 border border-gray-300 rounded text-center" />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Relacionamentos e Prompt */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-gray-100">
+                    <div>
+                      <h4 className="text-sm font-semibold text-gray-800 mb-3">Matriz de Relacionamentos</h4>
+                      <p className="text-xs text-gray-500 mb-4">Escolha com quantos vendedores este chip deve interagir e com qual persona.</p>
+                      
+                      <div className="space-y-3">
+                        <label className="flex justify-between items-center p-3 border border-gray-200 rounded-lg bg-white shadow-sm">
+                          <span className="text-sm font-medium text-gray-700">Parentes (Primos/Irmãos)</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-gray-400">Qtd:</span>
+                            <input type="number" value={rules.warmupFamilyCount} onChange={e => updateRule('warmupFamilyCount', Number(e.target.value))} className="w-16 p-1.5 border border-gray-300 rounded-md text-center text-sm" />
+                          </div>
+                        </label>
+                        <label className="flex justify-between items-center p-3 border border-gray-200 rounded-lg bg-white shadow-sm">
+                          <span className="text-sm font-medium text-gray-700">Amigos Próximos</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-gray-400">Qtd:</span>
+                            <input type="number" value={rules.warmupFriendCount} onChange={e => updateRule('warmupFriendCount', Number(e.target.value))} className="w-16 p-1.5 border border-gray-300 rounded-md text-center text-sm" />
+                          </div>
+                        </label>
+                        <label className="flex justify-between items-center p-3 border border-gray-200 rounded-lg bg-white shadow-sm cursor-pointer">
+                          <span className="text-sm font-medium text-gray-700">Casal (Parceiro/a)</span>
+                          <div className="flex items-center gap-2">
+                            <input type="checkbox" checked={rules.warmupCoupleEnabled} onChange={(e) => updateRule('warmupCoupleEnabled', e.target.checked)} className="w-4 h-4 text-orange-600 rounded" />
+                            <span className="text-xs font-medium text-gray-600">1 Vendedor</span>
+                          </div>
+                        </label>
+                      </div>
+                    </div>
+
+                    <div>
+                      <h4 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                        Instrução da IA (Prompt)
+                        <div className="group relative cursor-help">
+                          <Info className="w-4 h-4 text-gray-400" />
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-2 bg-gray-900 text-white text-xs rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                            Esta instrução substitui o script de vendas durante o aquecimento para garantir conversas orgânicas.
+                          </div>
+                        </div>
+                      </h4>
+                      <textarea 
+                        value={rules.warmupPrompt}
+                        onChange={(e) => updateRule('warmupPrompt', e.target.value)}
+                        className="w-full h-72 p-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 outline-none resize-y"
+                        placeholder="Instrução para a IA..."
+                      />
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: FILTROS AVANÇADOS */}
           {activeTab === 'filters' && (
             <div className="max-w-4xl mx-auto space-y-6">
               <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-5">

@@ -59,9 +59,9 @@ export const aiService = {
   /**
    * Gera a resposta do bot usando as diretrizes, histórico e ferramentas (Function Calling).
    */
-  async generateResponse(phone: string, userMessage: string, history: any[], pipelineStage: string) {
+  async generateResponse(phone: string, userMessage: string, history: any[], pipelineStage: string, overridePrompt?: string) {
     // 1. Carrega as diretrizes específicas da etapa do cliente
-    const systemInstruction = getSystemInstruction(pipelineStage);
+    const systemInstruction = overridePrompt ? overridePrompt : getSystemInstruction(pipelineStage);
 
     // 2. Formata o histórico do Firebase para o padrão esperado pelo SDK do Gemini
     const contents: any[] = history.map((msg) => ({

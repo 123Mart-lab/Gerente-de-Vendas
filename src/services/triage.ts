@@ -8,7 +8,7 @@ const triageSchema: Schema = {
     intent: {
       type: Type.STRING,
       description: 'The classified intent of the user.',
-      enum: ['SALES', 'SUPPORT', 'OTHER']
+      enum: ['SALES', 'SUPPORT', 'WARMUP', 'OTHER']
     },
     reasoning: {
       type: Type.STRING,
@@ -19,7 +19,7 @@ const triageSchema: Schema = {
 };
 
 export const triageService = {
-  async classifyMessage(text: string, history: any[] = []): Promise<'SALES' | 'SUPPORT' | 'OTHER'> {
+  async classifyMessage(text: string, history: any[] = []): Promise<'SALES' | 'SUPPORT' | 'WARMUP' | 'OTHER'> {
     try {
       const historyText = history.map(h => `${h.role}: ${h.text}`).join('\n');
       const prompt = `
@@ -29,7 +29,8 @@ Sua única função é ler a mensagem do cliente e classificar a intenção dele
 Categorias disponíveis:
 - SALES: O cliente quer comprar algo, está perguntando sobre produtos, preços, orçamentos, ou mostrando interesse comercial.
 - SUPPORT: O cliente já comprou ou está com problemas, dúvidas técnicas, reclamações, ou precisa de assistência com algo existente.
-- OTHER: Assuntos não relacionados a vendas ou suporte (ex: spam, currículos, fornecedores oferecendo serviços).
+- WARMUP: A mensagem parece ser uma conversa casual, amigável ou familiar de um parceiro/colega de aquecimento de chip (falando sobre família, futebol, dia a dia, moda, relacionamento, clima, etc).
+- OTHER: Assuntos não relacionados a vendas, suporte ou aquecimento (ex: spam, currículos, etc).
 
 Histórico recente da conversa:
 ${historyText || 'Nenhum histórico.'}

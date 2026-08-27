@@ -22,6 +22,11 @@ const clientes = [
     nome: 'Pedro (Vendas)',
     phone: '5511944444444@c.us',
     text: 'Vocês aceitam PIX? Tem desconto se eu levar a geladeira à vista?'
+  },
+  {
+    nome: 'Lucas (Aquecimento - Primo)',
+    phone: '5511999999999@c.us',
+    text: 'E aí primo, tudo bem? Como estão as coisas no trabalho e a saúde da tia?'
   }
 ];
 

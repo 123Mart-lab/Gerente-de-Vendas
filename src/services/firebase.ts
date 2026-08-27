@@ -81,6 +81,9 @@ export const firebaseService = {
   /**
    * Recupera as últimas 'limit' mensagens para passar como contexto para o Gemini.
    */
+  /**
+   * Recupera as últimas 'limit' mensagens para passar como contexto para o Gemini.
+   */
   async getChatHistory(phone: string, limit = 15) {
     const snapshot = await getDb().collection('leads').doc(phone).collection('messages')
       .orderBy('timestamp', 'desc')
@@ -89,5 +92,26 @@ export const firebaseService = {
       
     // Reverte para ficar em ordem cronológica (mais antiga -> mais nova)
     return snapshot.docs.map(doc => doc.data()).reverse();
+  },
+
+  /**
+   * Salva as configurações globais (Regras de Disparo e Warm-up) no Firestore.
+   */
+  async saveSettings(settings: any) {
+    const db = getDb();
+    await db.collection('config').doc('globalSettings').set(settings, { merge: true });
+    console.log('[Firebase] Configurações globais atualizadas.');
+  },
+
+  /**
+   * Recupera as configurações globais.
+   */
+  async getSettings() {
+    const db = getDb();
+    const doc = await db.collection('config').doc('globalSettings').get();
+    if (doc.exists) {
+      return doc.data();
+    }
+    return null;
   }
 };

@@ -43,10 +43,24 @@ app.get('/api/stats', async (req, res) => {
   }
 });
 
-app.post('/api/settings', (req, res) => {
-  // Recebe as configurações de tempo entre envios
-  console.log('Novas configurações recebidas:', req.body);
-  res.json({ success: true });
+app.get('/api/settings', async (req, res) => {
+  try {
+    const settings = await firebaseService.getSettings();
+    res.json(settings || {});
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch settings' });
+  }
+});
+
+app.post('/api/settings', async (req, res) => {
+  try {
+    console.log('Novas configurações recebidas, salvando no Firebase...');
+    await firebaseService.saveSettings(req.body);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Erro ao salvar configurações:', error);
+    res.status(500).json({ error: 'Failed to save settings' });
+  }
 });
 
 app.post('/api/whatsapp/check-number', async (req, res) => {

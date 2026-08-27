@@ -189,16 +189,15 @@ app.get('/api/marketing/products', async (req, res) => {
   try {
     const query = req.query.q as string;
     let creds = null;
-    try {
-      creds = await firebaseService.getNuvemshopCredentials();
-    } catch (err) {}
-    
-    // FALLBACK IF FIREBASE FAILS BUT ENV VARS EXIST
-    if (!creds && process.env.NUVEMSHOP_ACCESS_TOKEN && process.env.NUVEMSHOP_STORE_ID) {
+    if (process.env.NUVEMSHOP_ACCESS_TOKEN && process.env.NUVEMSHOP_STORE_ID) {
       creds = { 
-        accessToken: process.env.NUVEMSHOP_ACCESS_TOKEN, 
-        storeId: process.env.NUVEMSHOP_STORE_ID 
+        accessToken: process.env.NUVEMSHOP_ACCESS_TOKEN.replace(/[^a-zA-Z0-9]/g, ''), 
+        storeId: process.env.NUVEMSHOP_STORE_ID.replace(/[^0-9]/g, '') 
       };
+    } else {
+      try {
+        creds = await firebaseService.getNuvemshopCredentials();
+      } catch (err) {}
     }
     
     if (!creds) {
@@ -244,18 +243,17 @@ app.post('/api/marketing/optimize', async (req, res) => {
   try {
     const { productId, query } = req.body;
     let creds = null;
-    try {
-      creds = await firebaseService.getNuvemshopCredentials();
-    } catch (err: any) {
-      console.warn('⚠️ Erro ao acessar Firebase (Mock ativado):', err.message);
-    }
-    
-    // FALLBACK IF FIREBASE FAILS BUT ENV VARS EXIST
-    if (!creds && process.env.NUVEMSHOP_ACCESS_TOKEN && process.env.NUVEMSHOP_STORE_ID) {
+    if (process.env.NUVEMSHOP_ACCESS_TOKEN && process.env.NUVEMSHOP_STORE_ID) {
       creds = { 
-        accessToken: process.env.NUVEMSHOP_ACCESS_TOKEN, 
-        storeId: process.env.NUVEMSHOP_STORE_ID 
+        accessToken: process.env.NUVEMSHOP_ACCESS_TOKEN.replace(/[^a-zA-Z0-9]/g, ''), 
+        storeId: process.env.NUVEMSHOP_STORE_ID.replace(/[^0-9]/g, '') 
       };
+    } else {
+      try {
+        creds = await firebaseService.getNuvemshopCredentials();
+      } catch (err: any) {
+        console.warn('⚠️ Erro ao acessar Firebase (Mock ativado):', err.message);
+      }
     }
     
     let produto;
@@ -363,12 +361,12 @@ app.post('/api/marketing/save', async (req, res) => {
     console.log("Saving payload to Nuvemshop:", JSON.stringify(updatePayload, null, 2));
     if (productId && String(productId).indexOf('mock-') === -1) {
         let creds = null;
-        try {
-          creds = await firebaseService.getNuvemshopCredentials();
-        } catch (err) {}
-        
-        if (!creds && process.env.NUVEMSHOP_ACCESS_TOKEN && process.env.NUVEMSHOP_STORE_ID) {
-          creds = { accessToken: process.env.NUVEMSHOP_ACCESS_TOKEN, storeId: process.env.NUVEMSHOP_STORE_ID };
+        if (process.env.NUVEMSHOP_ACCESS_TOKEN && process.env.NUVEMSHOP_STORE_ID) {
+          creds = { accessToken: process.env.NUVEMSHOP_ACCESS_TOKEN.replace(/[^a-zA-Z0-9]/g, ''), storeId: process.env.NUVEMSHOP_STORE_ID.replace(/[^0-9]/g, '') };
+        } else {
+          try {
+            creds = await firebaseService.getNuvemshopCredentials();
+          } catch (err) {}
         }
         
         if (creds) {

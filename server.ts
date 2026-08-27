@@ -214,7 +214,12 @@ app.post('/api/marketing/optimize', async (req, res) => {
       id: produto.id,
       name: produto.name?.pt ?? (typeof produto.name === 'string' ? produto.name : ''),
       price: produto.variants?.[0]?.price,
-      description: produto.description?.pt ?? (typeof produto.description === 'string' ? produto.description : '')
+      description: produto.description?.pt ?? (typeof produto.description === 'string' ? produto.description : ''),
+      brand: produto.brand?.pt ?? (typeof produto.brand === 'string' ? produto.brand : ''),
+      tags: produto.tags,
+      handle: produto.handle?.pt ?? (typeof produto.handle === 'string' ? produto.handle : ''),
+      seo_title: produto.seo_title?.pt ?? (typeof produto.seo_title === 'string' ? produto.seo_title : ''),
+      seo_description: produto.seo_description?.pt ?? (typeof produto.seo_description === 'string' ? produto.seo_description : '')
     };
     
     const otimizacao = await aiService.generateProductSEO(payload);
@@ -227,6 +232,33 @@ app.post('/api/marketing/optimize', async (req, res) => {
   } catch (err: any) {
     console.error('Erro no /api/marketing/optimize:', err?.response?.data || err.message);
     res.status(500).json({ error: 'Erro ao otimizar produto' });
+  }
+});
+
+app.post('/api/marketing/save', async (req, res) => {
+  try {
+    const { productId, data } = req.body;
+    
+    // Converter os dados de SEO gerados para o payload esperado pela Nuvemshop
+    const updatePayload: any = {};
+    
+    if (data.novoTitulo) updatePayload.name = { pt: data.novoTitulo };
+    if (data.novaDescricaoHtml) updatePayload.description = { pt: data.novaDescricaoHtml };
+    if (data.metaDescription) updatePayload.seo_description = data.metaDescription;
+    if (data.novoTitulo) updatePayload.seo_title = data.novoTitulo;
+    if (data.tags) updatePayload.tags = data.tags;
+    if (data.marca) updatePayload.brand = data.marca;
+    
+    // Tratamento: Nuvemshop API aceita ID do produto. Se não for mock, tenta salvar.
+    if (productId && !productId.startsWith('mock-')) {
+        const result = await nuvemshopService.updateProduct(productId, updatePayload);
+        return res.json({ success: true, result });
+    }
+    
+    return res.json({ success: true, mock: true, message: 'Simulado com sucesso' });
+  } catch (err: any) {
+    console.error('Erro no /api/marketing/save:', err?.response?.data || err.message);
+    res.status(500).json({ error: 'Erro ao salvar produto na Nuvemshop' });
   }
 });
 

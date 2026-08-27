@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import axios from 'axios';
-import { Search, Sparkles, AlertCircle, CheckCircle2, ArrowRight, Eye, RefreshCw, LayoutTemplate } from 'lucide-react';
+import { Search, Sparkles, AlertCircle, CheckCircle2, ArrowRight, Eye, RefreshCw, LayoutTemplate, Save } from 'lucide-react';
 
 export default function ProductOptimizer() {
   const [isOptimizing, setIsOptimizing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [optimized, setOptimized] = useState(false);
 
   const [searchTerm, setSearchTerm] = useState('FACA DE ACO INOXIDAVEL C/ CABO PLASTICO 12');
@@ -20,13 +21,33 @@ export default function ProductOptimizer() {
       setOptimized(true);
     } catch (error) {
       console.error('Erro na otimização:', error);
-      console.error('API Error');
+      alert('Erro na otimização. Verifique o console.');
       setOptimized(false);
     } finally {
       setIsOptimizing(false);
     }
   };
 
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      const response = await axios.post('/api/marketing/save', {
+        productId: originalProduct?.id,
+        data: seoResult
+      });
+      if (response.data.success) {
+        alert(response.data.mock ? 'Produto salvo com sucesso! (Modo Simulação)' : 'Produto salvo e atualizado na Nuvemshop com sucesso!');
+        setOptimized(false);
+        setOriginalProduct(null);
+        setSeoResult(null);
+      }
+    } catch (error) {
+      console.error('Erro ao salvar:', error);
+      alert('Falha ao salvar produto na Nuvemshop.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -39,7 +60,7 @@ export default function ProductOptimizer() {
           <p className="text-slate-500 mt-1">Análise semântica, geração de copy e injeção de SEO para a Nuvemshop.</p>
         </div>
         
-        {/* Toggle Piloto Automático (Visual do Futuro) */}
+        {/* Toggle Piloto Automático */}
         <div className="flex items-center gap-3 bg-white border border-slate-200 px-4 py-2 rounded-lg opacity-70">
           <div className="flex flex-col text-right">
             <span className="text-sm font-semibold text-slate-700">Piloto Automático</span>
@@ -51,137 +72,209 @@ export default function ProductOptimizer() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        {/* Coluna 1: Produto Atual */}
-        <div className="lg:col-span-1 space-y-4">
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col h-full">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-slate-800">Produto Atual</h3>
-              <span className="bg-rose-100 text-rose-700 text-xs font-bold px-2 py-1 rounded-md">SEO: Ruim</span>
-            </div>
-            
-            <div className="relative mb-4">
-              <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
-              <input 
-                type="text" 
-                placeholder="Buscar ID ou Nome..." 
-                className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
-                value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-4 flex-1">
-              <div>
-                <label className="text-xs font-medium text-slate-500 uppercase">Título Original</label>
-                <p className="text-sm text-slate-800 mt-1 p-2 bg-slate-50 rounded border border-slate-100">
-                  {typeof originalProduct?.name === 'string' ? originalProduct?.name : (originalProduct?.name?.pt || '...')}
-                </p>
-              </div>
-              
-              <div>
-                <label className="text-xs font-medium text-slate-500 uppercase">Descrição Atual</label>
-                <p className="text-sm text-slate-800 mt-1 p-2 bg-slate-50 rounded border border-slate-100 italic text-slate-400">
-                  {typeof originalProduct?.description === 'string' ? originalProduct?.description : (originalProduct?.description?.pt || '...')}
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-xs font-medium text-slate-500 uppercase">Problemas Detectados</label>
-                <ul className="text-sm space-y-2">
-                  <li className="flex items-center text-rose-600 gap-2"><AlertCircle className="w-4 h-4" /> Título em MAIÚSCULAS (Spam)</li>
-                  <li className="flex items-center text-rose-600 gap-2"><AlertCircle className="w-4 h-4" /> Meta Description Ausente</li>
-                  <li className="flex items-center text-rose-600 gap-2"><AlertCircle className="w-4 h-4" /> Sem gatilhos de conversão</li>
-                </ul>
-              </div>
-            </div>
-
-            <button 
-              onClick={handleOptimize}
-              disabled={isOptimizing || optimized}
-              className="w-full mt-6 bg-slate-900 hover:bg-slate-800 text-white font-medium py-2.5 rounded-lg flex items-center justify-center gap-2 transition-all disabled:opacity-50"
-            >
-              {isOptimizing ? (
-                <><RefreshCw className="w-4 h-4 animate-spin" /> Gerando Copy...</>
-              ) : optimized ? (
-                <><CheckCircle2 className="w-4 h-4 text-emerald-400" /> Otimização Concluída</>
-              ) : (
-                <><Sparkles className="w-4 h-4" /> Gerar Otimização Profissional</>
-              )}
-            </button>
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+        {/* Barra de Busca e Ação Principal */}
+        <div className="p-5 border-b border-slate-200 bg-slate-50 flex flex-col md:flex-row gap-4 items-center">
+          <div className="relative flex-1 w-full">
+            <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+            <input 
+              type="text" 
+              placeholder="Buscar ID ou Nome do produto na Nuvemshop..." 
+              className="w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 bg-white shadow-sm"
+              value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+            />
           </div>
-        </div>
-
-        {/* Coluna 2 e 3: Resultado da Otimização */}
-        <div className="lg:col-span-2 space-y-4">
-          <div className={`bg-white p-5 rounded-xl border transition-all duration-500 ${optimized ? 'border-emerald-200 shadow-md' : 'border-slate-200 border-dashed opacity-50'} h-full flex flex-col`}>
-            
-            {!optimized ? (
-              <div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-10">
-                <LayoutTemplate className="w-16 h-16 mb-4 text-slate-200" />
-                <p className="text-center font-medium">Aguardando comando de otimização...</p>
-                <p className="text-center text-sm mt-2 max-w-sm">A Inteligência Artificial analisará a categoria do produto para definir o público-alvo e criará copies focadas em vendas e SEO.</p>
-              </div>
+          <button 
+            onClick={handleOptimize}
+            disabled={isOptimizing}
+            className="w-full md:w-auto bg-slate-900 hover:bg-slate-800 text-white font-medium py-2.5 px-6 rounded-lg flex items-center justify-center gap-2 transition-all disabled:opacity-50 whitespace-nowrap shadow-sm"
+          >
+            {isOptimizing ? (
+              <><RefreshCw className="w-4 h-4 animate-spin" /> Analisando...</>
             ) : (
-              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-                  <h3 className="font-semibold text-slate-800 flex items-center gap-2">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-                    Resultado da Otimização
-                  </h3>
-                  <span className="bg-emerald-100 text-emerald-700 text-xs font-bold px-2 py-1 rounded-md">SEO: Excelente (98/100)</span>
-                </div>
-
-                {/* Google Search Preview */}
-                <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase flex items-center gap-2 mb-2">
-                    <Eye className="w-4 h-4" /> Preview do Google Shopping
-                  </label>
-                  <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm max-w-xl">
-                    <p className="text-[12px] text-slate-800 mb-1">https://www.123mart.com.br › produtos › faca-inox-12...</p>
-                    <h4 className="text-[18px] text-[#1a0dab] cursor-pointer hover:underline truncate">
-                      {seoResult?.novoTitulo || "Titulo Gerado..."}
-                    </h4>
-                    <p className="text-[13px] text-[#4d5156] mt-1 leading-snug">
-                      {seoResult?.metaDescription || "..."}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-xs font-medium text-slate-500 uppercase">Novo Título da Loja</label>
-                    <p className="text-sm text-slate-800 mt-1 p-2 bg-emerald-50 rounded border border-emerald-100 font-medium">
-                      {seoResult?.novoTitulo || "..."}
-                    </p>
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-slate-500 uppercase">Público-Alvo Detectado (IA)</label>
-                    <p className="text-sm text-slate-800 mt-1 p-2 bg-slate-50 rounded border border-slate-200">
-                      {seoResult?.publicoAlvo || "..."}
-                    </p>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-xs font-medium text-slate-500 uppercase">Nova Descrição (Copywriting)</label>
-                  <div className="text-sm text-slate-700 mt-1 p-4 bg-slate-50 rounded border border-slate-200 h-48 overflow-y-auto prose prose-sm" dangerouslySetInnerHTML={{ __html: seoResult?.novaDescricaoHtml || '...' }}></div>
-                </div>
-
-                <div className="flex justify-end gap-3 pt-2">
-                  <button onClick={() => setOptimized(false)} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
-                    Descartar
-                  </button>
-                  <button className="px-6 py-2 bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium rounded-lg shadow-sm transition-colors flex items-center gap-2">
-                    Aprovar e Salvar na Nuvemshop <ArrowRight className="w-4 h-4" />
-                  </button>
-                </div>
-
-              </div>
+              <><Sparkles className="w-4 h-4" /> Gerar Otimização Profissional</>
             )}
-          </div>
+          </button>
         </div>
 
+        {!optimized && !originalProduct ? (
+          <div className="flex flex-col items-center justify-center text-slate-400 p-16">
+            <LayoutTemplate className="w-16 h-16 mb-4 text-slate-200" />
+            <p className="text-center font-medium text-lg text-slate-500">Aguardando comando de otimização...</p>
+            <p className="text-center text-sm mt-2 max-w-md">A Inteligência Artificial analisará a categoria do produto para definir o público-alvo e criará copies focadas em vendas e SEO.</p>
+          </div>
+        ) : (
+          <div className="flex flex-col animate-in fade-in duration-500">
+            {/* Header das Colunas */}
+            <div className="grid grid-cols-1 md:grid-cols-2 border-b border-slate-200 bg-slate-100">
+              <div className="p-4 border-r border-slate-200">
+                <h3 className="font-semibold text-slate-800 flex items-center justify-between">
+                  <span>Produto Atual</span>
+                  <span className="bg-rose-100 text-rose-700 text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded-md">SEO Ruim</span>
+                </h3>
+              </div>
+              <div className="p-4 bg-emerald-50 flex items-center justify-between">
+                <h3 className="font-semibold text-emerald-800 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4" />
+                  Resultado da Otimização
+                </h3>
+                <span className="bg-emerald-200 text-emerald-800 text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded-md">SEO Excelente</span>
+              </div>
+            </div>
+
+            {/* Linha: Google Shopping Preview */}
+            <div className="p-6 border-b border-slate-200 bg-slate-50">
+               <label className="text-xs font-semibold text-slate-500 uppercase flex items-center gap-2 mb-3">
+                  <Eye className="w-4 h-4" /> Preview do Google Shopping (Como o cliente verá)
+               </label>
+               <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm max-w-2xl">
+                 <p className="text-[13px] text-slate-800 mb-1 flex items-center gap-1">
+                   <span className="font-medium">Nuvemshop</span>
+                   <span className="text-slate-400">›</span>
+                   <span className="text-slate-600">produtos</span>
+                   <span className="text-slate-400">›</span>
+                   <span className="text-slate-600 truncate max-w-[200px]">{seoResult?.urlProduto || originalProduct?.handle || "produto"}</span>
+                 </p>
+                 <h4 className="text-[20px] text-[#1a0dab] cursor-pointer hover:underline truncate font-medium">
+                   {seoResult?.novoTitulo || "Titulo Gerado..."}
+                 </h4>
+                 <p className="text-[14px] text-[#4d5156] mt-1 leading-snug">
+                   {seoResult?.metaDescription || "..."}
+                 </p>
+               </div>
+            </div>
+
+            {/* Linha: Título */}
+            <div className="grid grid-cols-1 md:grid-cols-2 border-b border-slate-200">
+              <div className="p-5 border-r border-slate-200 bg-white">
+                <label className="text-xs font-semibold text-slate-400 uppercase block mb-2 tracking-wider">Título Original</label>
+                <p className="text-sm text-slate-800">
+                  {typeof originalProduct?.name === 'string' ? originalProduct?.name : (originalProduct?.name?.pt || <span className="text-slate-400 italic">Vazio</span>)}
+                </p>
+              </div>
+              <div className="p-5 bg-emerald-50/30 flex flex-col gap-4">
+                <div>
+                  <label className="text-xs font-semibold text-emerald-600/70 uppercase block mb-2 tracking-wider">Novo Título Otimizado</label>
+                  <input
+                    type="text"
+                    value={seoResult?.novoTitulo || ''}
+                    onChange={(e) => setSeoResult({...seoResult, novoTitulo: e.target.value})}
+                    className="w-full text-sm text-slate-900 font-medium p-2 bg-white border border-emerald-200/50 rounded focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-emerald-600/70 uppercase block mb-2 tracking-wider">Meta Description (SEO)</label>
+                  <textarea
+                    value={seoResult?.metaDescription || ''}
+                    onChange={(e) => setSeoResult({...seoResult, metaDescription: e.target.value})}
+                    className="w-full text-sm text-slate-900 p-2 bg-white border border-emerald-200/50 rounded focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 transition-colors resize-y h-16"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Linha: Marca e Tags */}
+            <div className="grid grid-cols-1 md:grid-cols-2 border-b border-slate-200">
+              <div className="p-5 border-r border-slate-200 bg-white flex flex-col gap-4">
+                <div>
+                  <label className="text-xs font-semibold text-slate-400 uppercase block mb-2 tracking-wider">Marca Atual</label>
+                  <p className="text-sm text-slate-800">
+                    {originalProduct?.brand || <span className="text-slate-400 italic">Não cadastrada</span>}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-400 uppercase block mb-2 tracking-wider">Tags Atuais</label>
+                  <p className="text-sm text-slate-800">
+                    {originalProduct?.tags || <span className="text-slate-400 italic">Sem tags</span>}
+                  </p>
+                </div>
+              </div>
+              <div className="p-5 bg-emerald-50/30 flex flex-col gap-4">
+                <div>
+                  <label className="text-xs font-semibold text-emerald-600/70 uppercase block mb-2 tracking-wider">Marca Sugerida (IA)</label>
+                  <input
+                    type="text"
+                    value={seoResult?.marca || ''}
+                    onChange={(e) => setSeoResult({...seoResult, marca: e.target.value})}
+                    className="w-full text-sm text-slate-900 font-medium p-2 bg-white border border-emerald-200/50 rounded focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-emerald-600/70 uppercase block mb-2 tracking-wider">Novas Tags SEO (IA)</label>
+                  <input
+                    type="text"
+                    value={seoResult?.tags || ''}
+                    onChange={(e) => setSeoResult({...seoResult, tags: e.target.value})}
+                    className="w-full text-sm text-slate-900 font-medium p-2 bg-white border border-emerald-200/50 rounded focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 transition-colors"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Linha: URL */}
+            <div className="grid grid-cols-1 md:grid-cols-2 border-b border-slate-200">
+              <div className="p-5 border-r border-slate-200 bg-white">
+                <label className="text-xs font-semibold text-slate-400 uppercase block mb-2 tracking-wider">URL Original</label>
+                <p className="text-sm text-slate-800 break-all">
+                  {originalProduct?.handle ? `.../produtos/${originalProduct.handle}` : <span className="text-slate-400 italic">Sem URL amigável</span>}
+                </p>
+              </div>
+              <div className="p-5 bg-emerald-50/30">
+                <label className="text-xs font-semibold text-emerald-600/70 uppercase block mb-2 tracking-wider">Nova URL Amigável</label>
+                <div className="flex items-center">
+                  <span className="text-sm text-slate-500 bg-slate-100 border border-emerald-200/50 border-r-0 rounded-l p-2">.../produtos/</span>
+                  <input
+                    type="text"
+                    value={seoResult?.urlProduto || ''}
+                    onChange={(e) => setSeoResult({...seoResult, urlProduto: e.target.value})}
+                    className="w-full text-sm text-sky-700 font-mono p-2 bg-white border border-emerald-200/50 rounded-r focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 transition-colors"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Linha: Descrição */}
+            <div className="grid grid-cols-1 md:grid-cols-2">
+              <div className="p-5 border-r border-slate-200 bg-white">
+                <label className="text-xs font-semibold text-slate-400 uppercase block mb-2 tracking-wider">Descrição Atual</label>
+                <div className="text-sm text-slate-600 italic whitespace-pre-wrap">
+                  {typeof originalProduct?.description === 'string' ? originalProduct?.description : (originalProduct?.description?.pt || <span className="text-slate-400">Vazio</span>)}
+                </div>
+              </div>
+              <div className="p-5 bg-emerald-50/30 flex flex-col">
+                <label className="text-xs font-semibold text-emerald-600/70 uppercase block mb-2 tracking-wider">Nova Descrição de Vendas (Copywriting) - HTML/Texto</label>
+                <textarea
+                  value={seoResult?.novaDescricaoHtml || ''}
+                  onChange={(e) => setSeoResult({...seoResult, novaDescricaoHtml: e.target.value})}
+                  className="w-full flex-1 min-h-[200px] text-sm text-slate-800 p-3 bg-white border border-emerald-200/50 rounded focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 transition-colors font-mono resize-y"
+                />
+              </div>
+            </div>
+
+            {/* Rodapé: Ações */}
+            <div className="p-5 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
+              <button 
+                onClick={() => { setOptimized(false); setOriginalProduct(null); }} 
+                className="px-5 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-200 hover:text-slate-900 rounded-lg transition-colors"
+                disabled={isSaving}
+              >
+                Descartar Otimização
+              </button>
+              <button 
+                onClick={handleSave}
+                disabled={isSaving}
+                className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg shadow-sm transition-colors flex items-center gap-2 disabled:opacity-50"
+              >
+                {isSaving ? (
+                  <><RefreshCw className="w-4 h-4 animate-spin" /> Salvando na Loja...</>
+                ) : (
+                  <><Save className="w-4 h-4" /> Aprovar e Salvar na Nuvemshop</>
+                )}
+              </button>
+            </div>
+            
+          </div>
+        )}
       </div>
     </div>
   );

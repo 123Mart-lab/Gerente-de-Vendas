@@ -81,5 +81,26 @@ export const nuvemshopService = {
       console.error('❌ Erro na consulta de contato (Nuvemshop):', error);
       return null;
     }
+  },
+  async updateProduct(productId: string, data: any): Promise<any> {
+    try {
+      const credentials = await firebaseService.getNuvemshopCredentials();
+      if (!credentials) {
+        console.warn('⚠️ Credenciais da Nuvemshop não encontradas (Mock update).');
+        return { success: true, mock: true };
+      }
+      const { storeId, accessToken } = credentials;
+      const API_URL = `https://api.nuvemshop.com.br/v1/${storeId}`;
+      const response = await axios.put(`${API_URL}/products/${productId}`, data, {
+        headers: {
+          'Authentication': `bearer ${accessToken}`,
+          'User-Agent': '123Mart AI Assistant (marcus.solidez@gmail.com)'
+        }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('❌ Erro ao atualizar produto (Nuvemshop):', error);
+      throw error;
+    }
   }
 };

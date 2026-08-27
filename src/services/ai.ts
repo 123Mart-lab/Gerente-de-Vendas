@@ -75,7 +75,7 @@ export const aiService = {
     try {
       // 4. Primeira chamada da API do Gemini injetando as Ferramentas (Tools)
       let response = await ai.models.generateContent({
-        model: 'gemini-3.6-flash',
+        model: 'gemini-1.5-pro',
         contents,
         config: {
           systemInstruction,
@@ -110,7 +110,7 @@ export const aiService = {
 
         // 6. Rechama o Gemini com o contexto atualizado para ele gerar a resposta final em texto
         response = await ai.models.generateContent({
-          model: 'gemini-3.6-flash',
+          model: 'gemini-1.5-pro',
           contents,
           config: { systemInstruction, tools: crmTools, temperature: 0.1 }
         });
@@ -185,15 +185,40 @@ Formato obrigatório de retorno (JSON puro):
 }`;
 
     try {
-      // Usando a versão Flash estável mais recente
+      // Usando a versão Pro estável mais recente
       const response = await ai.models.generateContent({
-        model: 'gemini-3.6-flash',
+        model: 'gemini-1.5-pro',
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         config: {
           systemInstruction,
           temperature: 0.3,
           tools: [{ googleSearch: {} }],
-          responseMimeType: 'application/json'
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              novoTitulo: { type: Type.STRING },
+              metaDescription: { type: Type.STRING },
+              publicoAlvo: { type: Type.STRING },
+              tags: { type: Type.STRING },
+              marca: { type: Type.STRING },
+              urlProduto: { type: Type.STRING },
+              novaDescricaoHtml: { type: Type.STRING },
+              scoreTituloOriginal: { type: Type.INTEGER },
+              scoreTituloNovo: { type: Type.INTEGER },
+              scoreDescricaoOriginal: { type: Type.INTEGER },
+              scoreDescricaoNova: { type: Type.INTEGER },
+              dicasMelhoria: { type: Type.ARRAY, items: { type: Type.STRING } },
+              emailMarketing: { type: Type.STRING },
+              socialMediaPosts: { type: Type.ARRAY, items: { type: Type.STRING } },
+              facebookAds: { type: Type.ARRAY, items: { type: Type.STRING } }
+            },
+            required: [
+              "novoTitulo", "metaDescription", "publicoAlvo", "tags", "marca", "urlProduto",
+              "novaDescricaoHtml", "scoreTituloOriginal", "scoreTituloNovo", "scoreDescricaoOriginal",
+              "scoreDescricaoNova", "dicasMelhoria", "emailMarketing", "socialMediaPosts", "facebookAds"
+            ]
+          }
         }
       });
       const parsed = JSON.parse(response.text || '{}'); console.log("AI returned:", parsed); return parsed;
@@ -209,7 +234,15 @@ Formato obrigatório de retorno (JSON puro):
           tags: "erro, cota, api, limite",
           marca: "Google Cloud",
           urlProduto: "limite-de-requisicoes",
-          novaDescricaoHtml: "<p><strong>Limite de requisições excedido.</strong></p><p>O sistema está utilizando corretamente o modelo <strong>Gemini 3.6 Flash</strong>, que é ultra-rápido, mas a chave de acesso do ambiente compartilhado atingiu o limite de consultas por minuto (Status 429).</p><p>Para continuar testando, aguarde cerca de 1 minuto e tente novamente. Para utilizar o sistema em produção sem interrupções, você precisa inserir sua própria chave de API nas configurações do sistema (ou no arquivo <code>.env</code> se estiver rodando localmente).</p>"
+          novaDescricaoHtml: "<p><strong>Limite de requisições excedido.</strong></p><p>O sistema está utilizando corretamente o modelo <strong>Gemini 1.5 Pro</strong>, mas a chave de acesso do ambiente compartilhado atingiu o limite de consultas por minuto (Status 429).</p><p>Para continuar testando, aguarde cerca de 1 minuto e tente novamente. Para utilizar o sistema em produção sem interrupções, você precisa inserir sua própria chave de API nas configurações do sistema (ou no arquivo <code>.env</code> se estiver rodando localmente).</p>",
+          scoreTituloOriginal: 0,
+          scoreTituloNovo: 0,
+          scoreDescricaoOriginal: 0,
+          scoreDescricaoNova: 0,
+          dicasMelhoria: [],
+          emailMarketing: "",
+          socialMediaPosts: [],
+          facebookAds: []
         };
       }
       return null;

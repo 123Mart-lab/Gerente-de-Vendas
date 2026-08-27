@@ -77,6 +77,55 @@ app.post('/api/whatsapp/check-number', async (req, res) => {
 });
 
 // ==========================================
+// ROTA OAUTH NUVEMSHOP (INSTALAÇÃO)
+// ==========================================
+app.get('/api/auth/callback', async (req, res) => {
+  const code = req.query.code as string;
+  if (!code) {
+    return res.status(400).send('Código de autorização não fornecido.');
+  }
+
+  try {
+    const clientId = process.env.NUVEMSHOP_CLIENT_ID;
+    const clientSecret = process.env.NUVEMSHOP_CLIENT_SECRET;
+
+    if (!clientId || !clientSecret) {
+      return res.status(500).send('Erro: Chaves da Nuvemshop não configuradas no servidor (.env).');
+    }
+
+    const { default: axios } = await import('axios');
+
+    // Troca o código pelo token final na API da Nuvemshop
+    const response = await axios.post('https://www.tiendanube.com/apps/authorize/token', {
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: 'authorization_code',
+      code: code
+    });
+
+    const { access_token, user_id } = response.data;
+    const storeId = String(user_id);
+
+    // Salvar no Firebase em segurança
+    await firebaseService.saveNuvemshopCredentials(storeId, access_token);
+
+    res.send(`
+      <html>
+        <body style="font-family: sans-serif; text-align: center; padding: 50px; background: #fafafa;">
+          <h1 style="color: #4CAF50;">✅ Aplicativo Instalado com Sucesso!</h1>
+          <p>O <strong>Cérebro de Vendas 123Mart</strong> foi conectado à sua Nuvemshop (Store ID: ${storeId}).</p>
+          <p>As chaves de acesso já foram validadas e salvas em segurança no nosso banco de dados na nuvem.</p>
+          <p>Você já pode fechar esta janela e voltar ao simulador no VS Code!</p>
+        </body>
+      </html>
+    `);
+  } catch (error: any) {
+    console.error('❌ Erro no OAuth da Nuvemshop:', error?.response?.data || error);
+    res.status(500).send('Erro ao autenticar com a Nuvemshop. Verifique os logs do terminal para mais detalhes.');
+  }
+});
+
+// ==========================================
 // 2. ROTA CENTRAL DE WEBHOOK (OPENWA)
 // ==========================================
 app.post('/webhook/openwa', async (req, res) => {

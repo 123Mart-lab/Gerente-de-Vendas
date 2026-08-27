@@ -1,7 +1,7 @@
 import { GoogleGenAI, Type, Tool } from '@google/genai';
 import fs from 'fs';
 import path from 'path';
-import { tinyErpService } from './tinyErp.js';
+import { nuvemshopService } from './nuvemshop.js';
 import { firebaseService } from './firebase.js';
 
 // Inicializa a engine do Gemini com a API Key injetada no ambiente
@@ -35,8 +35,8 @@ function getSystemInstruction(stage: string): string {
 const crmTools: Tool[] = [{
   functionDeclarations: [
     {
-      name: 'consultar_produtos_tiny',
-      description: 'Consulta o catálogo da 123Mart integrado ao Tiny ERP para responder disponibilidade e preços. Use sempre que o cliente perguntar sobre um produto específico.',
+      name: 'consultar_produtos_nuvemshop',
+      description: 'Consulta a vitrine da Nuvemshop da 123Mart para responder disponibilidade, preços e enviar o link direto. Use sempre que o cliente perguntar sobre um produto específico.',
       parameters: {
         type: Type.OBJECT,
         properties: { termo: { type: Type.STRING, description: 'Produto buscado pelo cliente' } },
@@ -91,9 +91,9 @@ export const aiService = {
         
         console.log(`[🤖 AI Tool Calling] Gemini acionou a função: ${call.name}`);
 
-        if (call.name === 'consultar_produtos_tiny') {
+        if (call.name === 'consultar_produtos_nuvemshop') {
           const termo = (call.args as any).termo;
-          const produtos = await tinyErpService.searchProducts(termo);
+          const produtos = await nuvemshopService.searchProducts(termo);
           toolResult = { resultado_estoque: produtos };
         } 
         else if (call.name === 'avancar_etapa_pipeline') {

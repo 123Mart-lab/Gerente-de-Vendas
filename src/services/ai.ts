@@ -75,7 +75,7 @@ export const aiService = {
     try {
       // 4. Primeira chamada da API do Gemini injetando as Ferramentas (Tools)
       let response = await ai.models.generateContent({
-        model: 'gemini-1.5-pro',
+        model: 'gemini-3.6-flash',
         contents,
         config: {
           systemInstruction,
@@ -110,7 +110,7 @@ export const aiService = {
 
         // 6. Rechama o Gemini com o contexto atualizado para ele gerar a resposta final em texto
         response = await ai.models.generateContent({
-          model: 'gemini-1.5-pro',
+          model: 'gemini-3.6-flash',
           contents,
           config: { systemInstruction, tools: crmTools, temperature: 0.1 }
         });
@@ -187,7 +187,7 @@ Formato obrigatório de retorno (JSON puro):
     try {
       // Usando a versão Pro estável mais recente
       const response = await ai.models.generateContent({
-        model: 'gemini-1.5-pro',
+        model: 'gemini-3.1-pro-preview',
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         config: {
           systemInstruction,
@@ -226,7 +226,7 @@ Formato obrigatório de retorno (JSON puro):
       console.error('Erro na geração de SEO:', err);
       
       // Tratamento gracioso para o limite de cota da chave de testes
-      if (err.message?.includes('429') || err.message?.includes('Quota')) {
+      if (err.message?.includes('429') || err.message?.includes('Quota') || err.message?.includes('404') || err.message?.includes('NOT_FOUND')) {
         return {
           novoTitulo: "⚠️ [LIMITE DE REQUISIÇÕES ATINGIDO]",
           metaDescription: "O limite de uso gratuito da API do Gemini foi temporariamente excedido (Status 429).",
@@ -234,7 +234,7 @@ Formato obrigatório de retorno (JSON puro):
           tags: "erro, cota, api, limite",
           marca: "Google Cloud",
           urlProduto: "limite-de-requisicoes",
-          novaDescricaoHtml: "<p><strong>Limite de requisições excedido.</strong></p><p>O sistema está utilizando corretamente o modelo <strong>Gemini 1.5 Pro</strong>, mas a chave de acesso do ambiente compartilhado atingiu o limite de consultas por minuto (Status 429).</p><p>Para continuar testando, aguarde cerca de 1 minuto e tente novamente. Para utilizar o sistema em produção sem interrupções, você precisa inserir sua própria chave de API nas configurações do sistema (ou no arquivo <code>.env</code> se estiver rodando localmente).</p>",
+          novaDescricaoHtml: "<p><strong>Limite de requisições excedido.</strong></p><p>O sistema está utilizando corretamente o modelo <strong>Gemini 3.1 Pro</strong>, mas a chave de acesso do ambiente compartilhado atingiu o limite de consultas por minuto (Status 429).</p><p>Para continuar testando, aguarde cerca de 1 minuto e tente novamente. Para utilizar o sistema em produção sem interrupções, você precisa inserir sua própria chave de API nas configurações do sistema (ou no arquivo <code>.env</code> se estiver rodando localmente).</p>",
           scoreTituloOriginal: 0,
           scoreTituloNovo: 0,
           scoreDescricaoOriginal: 0,

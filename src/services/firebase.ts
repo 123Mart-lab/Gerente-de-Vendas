@@ -23,7 +23,7 @@ function getDb() {
   }
   
   // A MÁGICA ACONTECE AQUI: Apontando para o seu banco customizado
-  dbInstance = getFirestore(); // Removido o ID fixo para funcionar com o seu Firebase
+  dbInstance = getFirestore('ai-studio-123martbot-19f3e99a-8216-4025-87f9-5c4fa761b2df'); // ID restaurado
   return dbInstance;
 }
 

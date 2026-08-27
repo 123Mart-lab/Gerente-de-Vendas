@@ -113,5 +113,30 @@ export const firebaseService = {
       return doc.data();
     }
     return null;
+  },
+
+  /**
+   * Salva as credenciais da Nuvemshop após a autorização.
+   */
+  async saveNuvemshopCredentials(storeId: string, accessToken: string) {
+    const db = getDb();
+    await db.collection('config').doc('nuvemshopAuth').set({
+      storeId,
+      accessToken,
+      updatedAt: FieldValue.serverTimestamp()
+    }, { merge: true });
+    console.log('[Firebase] Credenciais da Nuvemshop salvas.');
+  },
+
+  /**
+   * Recupera as credenciais da Nuvemshop.
+   */
+  async getNuvemshopCredentials() {
+    const db = getDb();
+    const doc = await db.collection('config').doc('nuvemshopAuth').get();
+    if (doc.exists) {
+      return doc.data();
+    }
+    return null;
   }
 };

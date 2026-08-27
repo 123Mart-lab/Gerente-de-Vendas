@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { Search, Sparkles, RefreshCw, LayoutTemplate, Save, CheckCircle2 } from 'lucide-react';
+import { Search, Sparkles, RefreshCw, LayoutTemplate, Save, CheckCircle2, ToggleLeft, ToggleRight, CheckSquare2, Square } from 'lucide-react';
 
 export default function ProductOptimizer() {
   const [isOptimizing, setIsOptimizing] = useState(false);
@@ -17,6 +17,19 @@ export default function ProductOptimizer() {
 
   const [originalProduct, setOriginalProduct] = useState<any>(null);
   const [seoResult, setSeoResult] = useState<any>(null);
+
+  const [selectedFields, setSelectedFields] = useState({
+    title: true,
+    metaDescription: true,
+    brand: true,
+    tags: true,
+    url: true,
+    description: true
+  });
+
+  const toggleField = (field: keyof typeof selectedFields) => {
+    setSelectedFields(prev => ({ ...prev, [field]: !prev[field] }));
+  };
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -63,6 +76,16 @@ export default function ProductOptimizer() {
       setOriginalProduct(response.data.original);
       setSeoResult(response.data.otimizado);
       setOptimized(true);
+      
+      // Reset toggles to all true when new optimization comes
+      setSelectedFields({
+        title: true,
+        metaDescription: true,
+        brand: true,
+        tags: true,
+        url: true,
+        description: true
+      });
     } catch (error) {
       console.error('Erro na otimização:', error);
       alert('Erro na otimização. Verifique o console.');
@@ -75,9 +98,18 @@ export default function ProductOptimizer() {
   const handleSave = async () => {
     setIsSaving(true);
     try {
+      // Build the final payload depending on what is toggled ON
+      const finalData: any = {};
+      if (selectedFields.title) finalData.novoTitulo = seoResult?.novoTitulo;
+      if (selectedFields.metaDescription) finalData.metaDescription = seoResult?.metaDescription;
+      if (selectedFields.brand) finalData.marca = seoResult?.marca;
+      if (selectedFields.tags) finalData.tags = seoResult?.tags;
+      if (selectedFields.url) finalData.urlProduto = seoResult?.urlProduto;
+      if (selectedFields.description) finalData.novaDescricaoHtml = seoResult?.novaDescricaoHtml;
+
       const response = await axios.post('/api/marketing/save', {
         productId: originalProduct?.id,
-        data: seoResult
+        data: finalData
       });
       if (response.data.success) {
         alert(response.data.mock ? 'Produto salvo com sucesso! (Modo Simulação)' : 'Produto salvo e atualizado na Nuvemshop com sucesso!');
@@ -91,6 +123,10 @@ export default function ProductOptimizer() {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const renderHTML = (html: string) => {
+    return { __html: html || '' };
   };
 
   return (
@@ -192,35 +228,53 @@ export default function ProductOptimizer() {
               <div className="p-4 bg-emerald-50">
                 <h3 className="font-semibold text-emerald-800 flex items-center justify-between">
                   <span className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4" /> Resultado da Otimização</span>
-                  <span className="bg-emerald-200 text-emerald-800 text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded-md">SEO Excelente</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-emerald-700">Selecione o que deseja salvar:</span>
+                    <span className="bg-emerald-200 text-emerald-800 text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded-md">SEO Excelente</span>
+                  </div>
                 </h3>
               </div>
             </div>
 
-            {/* Linha: Título */}
+            {/* Linha: Título e Meta */}
             <div className="grid grid-cols-1 md:grid-cols-2 border-b border-slate-200">
               <div className="p-5 border-r border-slate-200 bg-white">
                 <label className="text-xs font-semibold text-slate-400 uppercase block mb-2 tracking-wider">Título Original</label>
-                <p className="text-sm text-slate-800">
+                <p className="text-sm text-slate-800 mb-6">
                   {typeof originalProduct?.name === 'string' ? originalProduct?.name : (originalProduct?.name?.pt || <span className="text-slate-400 italic">Vazio</span>)}
                 </p>
               </div>
               <div className="p-5 bg-emerald-50/30 flex flex-col gap-4">
-                <div>
-                  <label className="text-xs font-semibold text-emerald-600/70 uppercase block mb-2 tracking-wider">Novo Título Otimizado</label>
+                {/* Checkbox Titulo */}
+                <div className={`p-3 rounded-lg border ${selectedFields.title ? 'border-emerald-200 bg-white' : 'border-slate-200 bg-slate-50 opacity-60'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-semibold text-emerald-600/70 uppercase tracking-wider cursor-pointer flex items-center gap-2" onClick={() => toggleField('title')}>
+                      {selectedFields.title ? <CheckSquare2 className="w-4 h-4 text-emerald-600" /> : <Square className="w-4 h-4 text-slate-400" />}
+                      Novo Título Otimizado
+                    </label>
+                  </div>
                   <input
                     type="text"
+                    disabled={!selectedFields.title}
                     value={seoResult?.novoTitulo || ''}
                     onChange={(e) => setSeoResult({...seoResult, novoTitulo: e.target.value})}
-                    className="w-full text-sm text-slate-900 font-medium p-2 bg-white border border-emerald-200/50 rounded focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 transition-colors"
+                    className="w-full text-sm text-slate-900 font-medium p-2 bg-white border border-slate-200 rounded focus:outline-none focus:border-emerald-400 focus:ring-1 transition-colors disabled:bg-slate-100 disabled:text-slate-500"
                   />
                 </div>
-                <div>
-                  <label className="text-xs font-semibold text-emerald-600/70 uppercase block mb-2 tracking-wider">Meta Description (SEO)</label>
+                
+                {/* Checkbox Meta Description */}
+                <div className={`p-3 rounded-lg border ${selectedFields.metaDescription ? 'border-emerald-200 bg-white' : 'border-slate-200 bg-slate-50 opacity-60'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-semibold text-emerald-600/70 uppercase tracking-wider cursor-pointer flex items-center gap-2" onClick={() => toggleField('metaDescription')}>
+                      {selectedFields.metaDescription ? <CheckSquare2 className="w-4 h-4 text-emerald-600" /> : <Square className="w-4 h-4 text-slate-400" />}
+                      Meta Description (SEO)
+                    </label>
+                  </div>
                   <textarea
+                    disabled={!selectedFields.metaDescription}
                     value={seoResult?.metaDescription || ''}
                     onChange={(e) => setSeoResult({...seoResult, metaDescription: e.target.value})}
-                    className="w-full text-sm text-slate-900 p-2 bg-white border border-emerald-200/50 rounded focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 transition-colors resize-y h-16"
+                    className="w-full text-sm text-slate-900 p-2 bg-white border border-slate-200 rounded focus:outline-none focus:border-emerald-400 focus:ring-1 transition-colors resize-y h-16 disabled:bg-slate-100 disabled:text-slate-500"
                   />
                 </div>
               </div>
@@ -243,22 +297,37 @@ export default function ProductOptimizer() {
                 </div>
               </div>
               <div className="p-5 bg-emerald-50/30 flex flex-col gap-4">
-                <div>
-                  <label className="text-xs font-semibold text-emerald-600/70 uppercase block mb-2 tracking-wider">Marca Sugerida (IA)</label>
+                {/* Checkbox Marca */}
+                <div className={`p-3 rounded-lg border ${selectedFields.brand ? 'border-emerald-200 bg-white' : 'border-slate-200 bg-slate-50 opacity-60'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-semibold text-emerald-600/70 uppercase tracking-wider cursor-pointer flex items-center gap-2" onClick={() => toggleField('brand')}>
+                      {selectedFields.brand ? <CheckSquare2 className="w-4 h-4 text-emerald-600" /> : <Square className="w-4 h-4 text-slate-400" />}
+                      Marca Sugerida (IA)
+                    </label>
+                  </div>
                   <input
                     type="text"
+                    disabled={!selectedFields.brand}
                     value={seoResult?.marca || ''}
                     onChange={(e) => setSeoResult({...seoResult, marca: e.target.value})}
-                    className="w-full text-sm text-slate-900 font-medium p-2 bg-white border border-emerald-200/50 rounded focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 transition-colors"
+                    className="w-full text-sm text-slate-900 font-medium p-2 bg-white border border-slate-200 rounded focus:outline-none focus:border-emerald-400 focus:ring-1 transition-colors disabled:bg-slate-100 disabled:text-slate-500"
                   />
                 </div>
-                <div>
-                  <label className="text-xs font-semibold text-emerald-600/70 uppercase block mb-2 tracking-wider">Novas Tags SEO (IA)</label>
+                
+                {/* Checkbox Tags */}
+                <div className={`p-3 rounded-lg border ${selectedFields.tags ? 'border-emerald-200 bg-white' : 'border-slate-200 bg-slate-50 opacity-60'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-semibold text-emerald-600/70 uppercase tracking-wider cursor-pointer flex items-center gap-2" onClick={() => toggleField('tags')}>
+                      {selectedFields.tags ? <CheckSquare2 className="w-4 h-4 text-emerald-600" /> : <Square className="w-4 h-4 text-slate-400" />}
+                      Novas Tags SEO (IA)
+                    </label>
+                  </div>
                   <input
                     type="text"
+                    disabled={!selectedFields.tags}
                     value={seoResult?.tags || ''}
                     onChange={(e) => setSeoResult({...seoResult, tags: e.target.value})}
-                    className="w-full text-sm text-slate-900 font-medium p-2 bg-white border border-emerald-200/50 rounded focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 transition-colors"
+                    className="w-full text-sm text-slate-900 font-medium p-2 bg-white border border-slate-200 rounded focus:outline-none focus:border-emerald-400 focus:ring-1 transition-colors disabled:bg-slate-100 disabled:text-slate-500"
                   />
                 </div>
               </div>
@@ -273,15 +342,23 @@ export default function ProductOptimizer() {
                 </p>
               </div>
               <div className="p-5 bg-emerald-50/30">
-                <label className="text-xs font-semibold text-emerald-600/70 uppercase block mb-2 tracking-wider">Nova URL Amigável</label>
-                <div className="flex items-center">
-                  <span className="text-sm text-slate-500 bg-slate-100 border border-emerald-200/50 border-r-0 rounded-l p-2">.../produtos/</span>
-                  <input
-                    type="text"
-                    value={seoResult?.urlProduto || ''}
-                    onChange={(e) => setSeoResult({...seoResult, urlProduto: e.target.value})}
-                    className="w-full text-sm text-sky-700 font-mono p-2 bg-white border border-emerald-200/50 rounded-r focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 transition-colors"
-                  />
+                <div className={`p-3 rounded-lg border ${selectedFields.url ? 'border-emerald-200 bg-white' : 'border-slate-200 bg-slate-50 opacity-60'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-semibold text-emerald-600/70 uppercase tracking-wider cursor-pointer flex items-center gap-2" onClick={() => toggleField('url')}>
+                      {selectedFields.url ? <CheckSquare2 className="w-4 h-4 text-emerald-600" /> : <Square className="w-4 h-4 text-slate-400" />}
+                      Nova URL Amigável
+                    </label>
+                  </div>
+                  <div className="flex items-center opacity-100">
+                    <span className="text-sm text-slate-500 bg-slate-100 border border-slate-200 border-r-0 rounded-l p-2">.../produtos/</span>
+                    <input
+                      type="text"
+                      disabled={!selectedFields.url}
+                      value={seoResult?.urlProduto || ''}
+                      onChange={(e) => setSeoResult({...seoResult, urlProduto: e.target.value})}
+                      className="w-full text-sm text-sky-700 font-mono p-2 bg-white border border-slate-200 rounded-r focus:outline-none focus:border-emerald-400 focus:ring-1 transition-colors disabled:bg-slate-100 disabled:text-slate-500"
+                    />
+                  </div>
                 </div>
               </div>
             </div>
@@ -289,23 +366,39 @@ export default function ProductOptimizer() {
             {/* Linha: Descrição */}
             <div className="grid grid-cols-1 md:grid-cols-2">
               <div className="p-5 border-r border-slate-200 bg-white">
-                <label className="text-xs font-semibold text-slate-400 uppercase block mb-2 tracking-wider">Descrição Atual</label>
-                <div className="text-sm text-slate-600 italic whitespace-pre-wrap">
-                  {typeof originalProduct?.description === 'string' ? originalProduct?.description : (originalProduct?.description?.pt || <span className="text-slate-400">Vazio</span>)}
-                </div>
+                <label className="text-xs font-semibold text-slate-400 uppercase block mb-2 tracking-wider">Descrição Atual (Visualização HTML)</label>
+                <div 
+                  className="prose prose-sm text-slate-600 break-words max-w-none prose-p:my-2 prose-ul:my-2 prose-li:my-1"
+                  dangerouslySetInnerHTML={renderHTML(
+                    typeof originalProduct?.description === 'string' ? originalProduct?.description : originalProduct?.description?.pt
+                  )} 
+                />
               </div>
               <div className="p-5 bg-emerald-50/30 flex flex-col">
-                <label className="text-xs font-semibold text-emerald-600/70 uppercase block mb-2 tracking-wider">Nova Descrição de Vendas (Copywriting) - HTML/Texto</label>
-                <textarea
-                  value={seoResult?.novaDescricaoHtml || ''}
-                  onChange={(e) => setSeoResult({...seoResult, novaDescricaoHtml: e.target.value})}
-                  className="w-full flex-1 min-h-[200px] text-sm text-slate-800 p-3 bg-white border border-emerald-200/50 rounded focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 transition-colors font-mono resize-y"
-                />
+                <div className={`p-3 rounded-lg border flex-1 flex flex-col ${selectedFields.description ? 'border-emerald-200 bg-white' : 'border-slate-200 bg-slate-50 opacity-60'}`}>
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="text-xs font-semibold text-emerald-600/70 uppercase tracking-wider cursor-pointer flex items-center gap-2" onClick={() => toggleField('description')}>
+                      {selectedFields.description ? <CheckSquare2 className="w-4 h-4 text-emerald-600" /> : <Square className="w-4 h-4 text-slate-400" />}
+                      Nova Descrição de Vendas (Copywriting)
+                    </label>
+                  </div>
+                  
+                  {/* Container duplo para visual e codigo (pra ficar simples, vamos manter um textarea pra editar, mas com opcao de preview seria ideal. Como o tempo é curto, focamos no HTML limpo) */}
+                  <textarea
+                    disabled={!selectedFields.description}
+                    value={seoResult?.novaDescricaoHtml || ''}
+                    onChange={(e) => setSeoResult({...seoResult, novaDescricaoHtml: e.target.value})}
+                    className="w-full flex-1 min-h-[400px] text-sm text-slate-800 p-3 bg-slate-50 border border-slate-200 rounded focus:outline-none focus:border-emerald-400 focus:ring-1 font-mono resize-y disabled:bg-slate-100 disabled:text-slate-500"
+                  />
+                  <div className="mt-2 text-xs text-slate-500">
+                    (Edite o código HTML acima se necessário. As tags serão renderizadas na loja.)
+                  </div>
+                </div>
               </div>
             </div>
 
             {/* Rodapé: Ações */}
-            <div className="p-5 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
+            <div className="p-5 bg-slate-50 border-t border-slate-200 flex justify-end gap-3 sticky bottom-0 z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
               <button 
                 onClick={() => { setOptimized(false); setOriginalProduct(null); }} 
                 className="px-5 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-200 hover:text-slate-900 rounded-lg transition-colors"
@@ -319,9 +412,9 @@ export default function ProductOptimizer() {
                 className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg shadow-sm transition-colors flex items-center gap-2 disabled:opacity-50"
               >
                 {isSaving ? (
-                  <><RefreshCw className="w-4 h-4 animate-spin" /> Salvando na Loja...</>
+                  <><RefreshCw className="w-4 h-4 animate-spin" /> Salvando selecionados na Loja...</>
                 ) : (
-                  <><Save className="w-4 h-4" /> Aprovar e Salvar na Nuvemshop</>
+                  <><Save className="w-4 h-4" /> Aprovar e Salvar Alterações Selecionadas</>
                 )}
               </button>
             </div>

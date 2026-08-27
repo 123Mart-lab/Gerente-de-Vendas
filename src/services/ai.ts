@@ -140,15 +140,15 @@ Siga RIGOROSAMENTE esta estrutura de informação técnica (Padrão Ouro de Conv
 7. Perguntas Frequentes (FAQ): Dúvidas técnicas (compatibilidade, limpeza, etc).
 
 SUA SEGUNDA TAREFA É AVALIAR O SEO E DAR NOTAS COMPARATIVAS (0 a 100):
-- scoreTituloOriginal: Qual a nota de SEO do título original?
+- scoreTituloOriginal: Qual a nota de SEO do título original? (Se o original já estiver perfeito, dê 95 a 100).
 - scoreTituloNovo: Qual a nota de SEO do título otimizado que você criou?
-- scoreDescricaoOriginal: Qual a nota da descrição original? Baseie a nota na proporção áurea (20% persuasão, 50% informação técnica, 30% segurança).
-- scoreDescricaoNova: Qual a nota da sua nova descrição? (Deve ser sempre maior que a original, próximo a 100).
-- dicasMelhoria (Array de Strings): Diga ao lojista quais dados TÉCNICOS faltaram no original e que ele precisa providenciar no ERP para o futuro (ex: "Falta informar o material", "Insira a ficha FISPQ").
+- scoreDescricaoOriginal: Qual a nota da descrição original? Baseie a nota na proporção áurea (20% persuasão, 50% informação técnica, 30% segurança). ATENÇÃO: Se a descrição original já estiver EXCELENTE, rica em HTML, técnica e bem formatada (pois pode já ter sido otimizada por você antes), você DEVE dar uma nota de 90 a 100 e reconhecer a alta qualidade, sem forçar notas baixas artificialmente.
+- scoreDescricaoNova: Qual a nota da sua nova descrição? (Deve ser sempre maior ou igual à original, próximo a 100).
+- dicasMelhoria (Array de Strings): Diga ao lojista quais dados TÉCNICOS faltaram no original e que ele precisa providenciar no ERP para o futuro (ex: "Falta informar o material", "Insira a ficha FISPQ"). Se a descrição original já estiver nota 100 e não faltar nada, retorne um array vazio [].
 
 Retorne os dados ESTRITAMENTE em formato JSON puro.`;
     
-    const prompt = `Analise este produto, deduza o público-alvo e as tags de SEO. Avalie os dados originais e gere os scores e dicas. Em seguida, crie uma descrição altamente técnica, informativa, SEM EMOJIS e com forte injeção de SEO no gancho inicial. SE o produto já tiver uma Marca Original cadastrada, OBRIGATORIAMENTE use a mesma marca.
+    const prompt = `Analise este produto, deduza o público-alvo e as tags de SEO. Avalie os dados originais e gere os scores e dicas. Em seguida, crie uma descrição altamente técnica, informativa, SEM EMOJIS e com forte injeção de SEO no gancho inicial. OBRIGATÓRIO: A novaDescricaoHtml DEVE usar tags HTML VÁLIDAS (<p>, <h3>, <ul>, <li>, <strong>, <br>) para formatação correta de parágrafos, subtítulos e listas. NUNCA use \n para quebra de linha. SE o produto já tiver uma Marca Original cadastrada, OBRIGATORIAMENTE use a mesma marca.
 
 Produto original:
 Nome: ${productData.name}
@@ -184,20 +184,20 @@ Formato obrigatório de retorno (JSON puro):
           responseMimeType: 'application/json'
         }
       });
-      return JSON.parse(response.text || '{}');
+      const parsed = JSON.parse(response.text || '{}'); console.log("AI returned:", parsed); return parsed;
     } catch (err: any) {
       console.error('Erro na geração de SEO:', err);
       
       // Tratamento gracioso para o limite de cota da chave de testes
       if (err.message?.includes('429') || err.message?.includes('Quota')) {
         return {
-          novoTitulo: "⚠️ [ERRO DE COTA DA API PRO]",
-          metaDescription: "A Chave de API atual não possui permissão para usar o modelo Pro.",
-          publicoAlvo: "Para resolver, adicione sua própria GEMINI_API_KEY no arquivo .env",
-          tags: "erro, cota, api, gemini",
+          novoTitulo: "⚠️ [LIMITE DE REQUISIÇÕES ATINGIDO]",
+          metaDescription: "O limite de uso gratuito da API do Gemini foi temporariamente excedido (Status 429).",
+          publicoAlvo: "Para uso contínuo em produção, adicione sua própria GEMINI_API_KEY no painel de configurações ou aguarde 1 minuto.",
+          tags: "erro, cota, api, limite",
           marca: "Google Cloud",
-          urlProduto: "erro-cota-api",
-          novaDescricaoHtml: "<p><strong>Você tem razão! O modelo Pro é o ideal para o marketing.</strong></p><p>No entanto, a chave de testes embutida no ambiente de demonstração possui limite zero para a família Pro. O código <strong>já foi atualizado</strong> para usar a melhor inteligência artificial do mercado (gemini-pro-latest).</p><p>Para ver este texto ganhar vida com a inteligência máxima, você só precisa colocar a sua chave particular no arquivo <code>.env</code> quando baixar o código para a sua máquina.</p>"
+          urlProduto: "limite-de-requisicoes",
+          novaDescricaoHtml: "<p><strong>Limite de requisições excedido.</strong></p><p>O sistema está utilizando corretamente o modelo <strong>Gemini 3.6 Flash</strong>, que é ultra-rápido, mas a chave de acesso do ambiente compartilhado atingiu o limite de consultas por minuto (Status 429).</p><p>Para continuar testando, aguarde cerca de 1 minuto e tente novamente. Para utilizar o sistema em produção sem interrupções, você precisa inserir sua própria chave de API nas configurações do sistema (ou no arquivo <code>.env</code> se estiver rodando localmente).</p>"
         };
       }
       return null;

@@ -20,6 +20,44 @@ export default function ProductOptimizer() {
 
   const [showHtmlPreview, setShowHtmlPreview] = useState(true);
   const [autoPilot, setAutoPilot] = useState(false);
+  const [autoPilotLogs, setAutoPilotLogs] = useState<{id: number, text: string, type: 'info' | 'success' | 'warning'}[]>([]);
+  
+  // Simulate autopilot process
+  useEffect(() => {
+    let interval: any;
+    if (autoPilot) {
+      const logs = [
+        "Iniciando Automação 360º de Catálogo...",
+        "[AGENTE 1] Escaneando Nuvemshop por produtos sem descrição rica...",
+        "[AGENTE 1] Produto identificado: 'Base para Amaciante Tuff'.",
+        "[AGENTE 1] Vasculhando Google e Mercado Livre por concorrentes diretos...",
+        "[AGENTE 1] Extraindo dores de clientes nas FAQs de concorrentes...",
+        "[AGENTE 2] Reescrevendo descrição técnica (Foco: 20% Persuasão, 80% Lógica)...",
+        "[AGENTE 3] Gerando calendários e legendas para Instagram e TikTok...",
+        "[AGENTE 4] Criando anúncios para Meta Ads (Foco em conversão)...",
+        "Otimização finalizada com sucesso. Salvando via API...",
+        "Aguardando próximo produto na fila..."
+      ];
+      let i = 0;
+      setAutoPilotLogs([{ id: Date.now(), text: "Conectando aos 4 Agentes de IA...", type: 'info' }]);
+      interval = setInterval(() => {
+        if (i < logs.length) {
+          setAutoPilotLogs(prev => [...prev, { 
+            id: Date.now(), 
+            text: logs[i], 
+            type: logs[i].includes('sucesso') ? 'success' : (logs[i].includes('Escaneando') ? 'warning' : 'info')
+          }]);
+          i++;
+        } else {
+          i = 0; // Restart simulation loop
+          setAutoPilotLogs([{ id: Date.now(), text: "Reiniciando varredura na Nuvemshop...", type: 'warning' }]);
+        }
+      }, 3500);
+    } else {
+      setAutoPilotLogs([]);
+    }
+    return () => clearInterval(interval);
+  }, [autoPilot]);
   const [selectedFields, setSelectedFields] = useState({
     title: true,
     metaDescription: true,
@@ -141,7 +179,7 @@ export default function ProductOptimizer() {
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
             <Sparkles className="w-6 h-6 text-sky-500" />
-            Otimizador de Produtos com IA
+            SEO de Produtos
           </h2>
           <p className="text-slate-500 mt-1">Análise semântica, geração de copy e injeção de SEO para a Nuvemshop.</p>
         </div>
@@ -226,11 +264,40 @@ export default function ProductOptimizer() {
         </div>
 
         {!optimized && !originalProduct ? (
-          <div className="flex flex-col items-center justify-center text-slate-400 p-16">
-            <LayoutTemplate className="w-16 h-16 mb-4 text-slate-200" />
-            <p className="text-center font-medium text-lg text-slate-500">Aguardando comando de otimização...</p>
-            <p className="text-center text-sm mt-2 max-w-md">A Inteligência Artificial analisará a categoria do produto para definir o público-alvo e criará copies focadas em vendas e SEO.</p>
-          </div>
+          autoPilot ? (
+            <div className="flex flex-col h-96 bg-slate-900 rounded-xl overflow-hidden shadow-inner border border-slate-700 font-mono text-sm">
+              <div className="bg-slate-800 px-4 py-2 flex items-center border-b border-slate-700">
+                <div className="flex gap-2">
+                  <div className="w-3 h-3 rounded-full bg-rose-500"></div>
+                  <div className="w-3 h-3 rounded-full bg-amber-500"></div>
+                  <div className="w-3 h-3 rounded-full bg-emerald-500"></div>
+                </div>
+                <span className="ml-4 text-slate-400 text-xs">Terminal de Agentes (Piloto Automático)</span>
+              </div>
+              <div className="p-4 flex-1 overflow-y-auto space-y-2 flex flex-col justify-end">
+                {autoPilotLogs.map(log => (
+                  <div key={log.id} className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+                    <span className="text-slate-500 mr-2">[{new Date(log.id).toLocaleTimeString()}]</span>
+                    <span className={
+                      log.type === 'success' ? 'text-emerald-400 font-semibold' :
+                      log.type === 'warning' ? 'text-amber-400' :
+                      log.text.includes('[AGENTE') ? 'text-sky-300' : 'text-slate-300'
+                    }>{log.text}</span>
+                  </div>
+                ))}
+                <div className="flex items-center text-slate-500">
+                  <span className="mr-2">[{new Date().toLocaleTimeString()}]</span>
+                  <span className="animate-pulse">_</span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center text-slate-400 p-16">
+              <LayoutTemplate className="w-16 h-16 mb-4 text-slate-200" />
+              <p className="text-center font-medium text-lg text-slate-500">Aguardando comando de otimização...</p>
+              <p className="text-center text-sm mt-2 max-w-md">A Inteligência Artificial analisará a categoria do produto para definir o público-alvo e criará copies focadas em vendas e SEO.</p>
+            </div>
+          )
         ) : (
           <div className="flex flex-col animate-in fade-in duration-500">
             {/* Header das Colunas */}
@@ -493,6 +560,63 @@ export default function ProductOptimizer() {
                 </div>
               </div>
             </div>
+
+            {/* Nova Seção: Campanha de Marketing 360 (Multi-Agentes) */}
+            {(seoResult?.emailMarketing || seoResult?.socialMediaPosts || seoResult?.facebookAds) && (
+              <div className="border-t border-slate-200">
+                <div className="p-5 bg-indigo-50/50 border-b border-slate-200">
+                  <h3 className="text-lg font-bold text-indigo-900 flex items-center gap-2">
+                    <Sparkles className="w-5 h-5 text-indigo-600" />
+                    Kit de Marketing 360º (Gerado por IA)
+                  </h3>
+                  <p className="text-sm text-indigo-700 mt-1">Materiais gerados automaticamente para você divulgar este produto.</p>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-0 divide-y md:divide-y-0 md:divide-x divide-slate-200">
+                  
+                  {/* Email Marketing */}
+                  <div className="p-5 bg-white">
+                    <label className="text-xs font-semibold text-indigo-600 uppercase tracking-wider flex items-center gap-2 mb-3">
+                      Email Marketing (Nutrição)
+                    </label>
+                    <textarea
+                      readOnly
+                      value={seoResult?.emailMarketing || ''}
+                      className="w-full h-64 text-sm text-slate-700 p-3 bg-slate-50 border border-slate-200 rounded focus:outline-none resize-none"
+                    />
+                  </div>
+
+                  {/* Redes Sociais */}
+                  <div className="p-5 bg-white">
+                    <label className="text-xs font-semibold text-indigo-600 uppercase tracking-wider flex items-center gap-2 mb-3">
+                      Posts Redes Sociais
+                    </label>
+                    <div className="space-y-3 h-64 overflow-y-auto pr-2">
+                      {seoResult?.socialMediaPosts?.map((post: string, i: number) => (
+                        <div key={i} className="p-3 bg-slate-50 border border-slate-200 rounded text-sm text-slate-700 whitespace-pre-wrap">
+                          {post}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Facebook Ads */}
+                  <div className="p-5 bg-white">
+                    <label className="text-xs font-semibold text-indigo-600 uppercase tracking-wider flex items-center gap-2 mb-3">
+                      Criativos de Ads (Meta)
+                    </label>
+                    <div className="space-y-3 h-64 overflow-y-auto pr-2">
+                      {seoResult?.facebookAds?.map((ad: string, i: number) => (
+                        <div key={i} className="p-3 bg-slate-50 border border-slate-200 rounded text-sm text-slate-700 whitespace-pre-wrap">
+                          {ad}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+            )}
 
             {/* Rodapé: Ações */}
             <div className="p-5 bg-slate-50 border-t border-slate-200 flex justify-end gap-3 sticky bottom-0 z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { LayoutDashboard, Users, Zap, Settings, Play, Smartphone, ListFilter, Sparkles, Tags, Megaphone, Store } from 'lucide-react';
+import { LayoutDashboard, Users, Zap, Settings, Play, Smartphone, ListFilter, Sparkles, Tags, Megaphone, Store, Mail, Share2, Target, Image as ImageIcon, Video } from 'lucide-react';
 import DashboardOverview from './components/DashboardOverview';
 import SalesRoom from './components/SalesRoom';
 import CampaignManager from './components/CampaignManager';
@@ -9,11 +9,16 @@ import ListManager from './components/ListManager';
 import MarketingDashboard from './components/marketing/MarketingDashboard';
 import ProductOptimizer from './components/marketing/ProductOptimizer';
 import CategorySEO from './components/marketing/CategorySEO';
+import EmailMarketing from './components/marketing/EmailMarketing';
+import SocialMedia from './components/marketing/SocialMedia';
+import AdsManager from './components/marketing/AdsManager';
+import PhotoProduction from './components/marketing/PhotoProduction';
+import VideoProduction from './components/marketing/VideoProduction';
 import { SettingsProvider } from './contexts/SettingsContext';
 
 type SectorType = 'comercial' | 'marketing';
 type ComercialTabType = 'dashboard' | 'sales' | 'campaigns' | 'devices' | 'lists' | 'settings';
-type MarketingTabType = 'mkt-dashboard' | 'products' | 'categories';
+type MarketingTabType = 'mkt-dashboard' | 'products' | 'categories' | 'email-marketing' | 'social-media' | 'facebook-ads' | 'photos' | 'videos';
 
 export default function App() {
   const [activeSector, setActiveSector] = useState<SectorType>('comercial');
@@ -35,6 +40,11 @@ export default function App() {
         case 'mkt-dashboard': return <MarketingDashboard />;
         case 'products': return <ProductOptimizer />;
         case 'categories': return <CategorySEO />;
+        case 'email-marketing': return <EmailMarketing />;
+        case 'social-media': return <SocialMedia />;
+        case 'facebook-ads': return <AdsManager />;
+        case 'photos': return <PhotoProduction />;
+        case 'videos': return <VideoProduction />;
       }
     }
   };
@@ -52,8 +62,13 @@ export default function App() {
     } else {
       switch (activeMarketingTab) {
         case 'mkt-dashboard': return 'Visão Geral do Marketing';
-        case 'products': return 'Otimizador de Produtos com IA';
+        case 'products': return 'SEO de Produtos';
         case 'categories': return 'SEO de Categorias';
+        case 'email-marketing': return 'Email Marketing & CRM';
+        case 'social-media': return 'Gestão de Redes Sociais';
+        case 'facebook-ads': return 'Tráfego Pago e Ads';
+        case 'photos': return 'Produção de Fotos (IA)';
+        case 'videos': return 'Produção de Vídeos (IA)';
       }
     }
   };
@@ -106,8 +121,17 @@ export default function App() {
                 <>
                   <div className="px-3 mb-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Otimização & IA</div>
                   <NavItem icon={<LayoutDashboard className="w-5 h-5" />} label="Visão Geral" active={activeMarketingTab === 'mkt-dashboard'} onClick={() => setActiveMarketingTab('mkt-dashboard')} />
-                  <NavItem icon={<Sparkles className="w-5 h-5" />} label="Otimizar Produtos" active={activeMarketingTab === 'products'} onClick={() => setActiveMarketingTab('products')} />
+                  <NavItem icon={<Sparkles className="w-5 h-5" />} label="SEO de Produtos" active={activeMarketingTab === 'products'} onClick={() => setActiveMarketingTab('products')} />
                   <NavItem icon={<Tags className="w-5 h-5" />} label="SEO de Categorias" active={activeMarketingTab === 'categories'} onClick={() => setActiveMarketingTab('categories')} />
+                  
+                  <div className="px-3 mt-6 mb-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Estúdio Criativo</div>
+                  <NavItem icon={<ImageIcon className="w-5 h-5" />} label="Produção de Fotos" active={activeMarketingTab === 'photos'} onClick={() => setActiveMarketingTab('photos')} />
+                  <NavItem icon={<Video className="w-5 h-5" />} label="Produção de Vídeos" active={activeMarketingTab === 'videos'} onClick={() => setActiveMarketingTab('videos')} />
+                  
+                  <div className="px-3 mt-6 mb-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Automação 360º</div>
+                  <NavItem icon={<Mail className="w-5 h-5" />} label="Email Marketing" active={activeMarketingTab === 'email-marketing'} onClick={() => setActiveMarketingTab('email-marketing')} />
+                  <NavItem icon={<Share2 className="w-5 h-5" />} label="Redes Sociais" active={activeMarketingTab === 'social-media'} onClick={() => setActiveMarketingTab('social-media')} />
+                  <NavItem icon={<Target className="w-5 h-5" />} label="Tráfego Pago (Ads)" active={activeMarketingTab === 'facebook-ads'} onClick={() => setActiveMarketingTab('facebook-ads')} />
                 </>
               )}
             </nav>

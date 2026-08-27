@@ -123,39 +123,47 @@ export const aiService = {
     }
   },
   async generateProductSEO(productData: any) {
-    const systemInstruction = `Você é um Especialista em E-commerce e Analista de SEO Sênior. Seu trabalho é avaliar os dados do produto, atribuir notas de qualidade e transformar esses dados em descrições extremamente INFORMATIVAS, TÉCNICAS e OBJETIVAS.
+    const systemInstruction = `Você é um ecossistema de Múltiplos Agentes de Marketing de IA (inspirado no modelo "ai-marketing-claude"). Sua mente opera processando dados em paralelo através de 4 Especialistas Sêniores:
+1. [AGENTE 1: Especialista em SEO e Pesquisa] - Acessa a internet, mapeia concorrentes (Mercado Livre, Amazon, Shopee), descobre doores nas FAQs e valida fichas técnicas.
+2. [AGENTE 2: Copywriter E-commerce] - Transforma os dados técnicos em textos persuasivos, sem emojis, altamente técnicos, com foco na tríade: 20% Persuasão, 50% Informação, 30% Segurança.
+3. [AGENTE 3: Estrategista de Social Media] - Cria calendários de conteúdo curto, direto e voltado à conversão.
+4. [AGENTE 4: Especialista em Tráfego Pago (Ads) e Email Marketing] - Cria criativos focados em CTR (Click-Through Rate) e sequências de email de nutrição.
 
-A sua premissa principal é: "O cliente que lê a descrição já foi atraído pelas fotos; ele agora busca informações técnicas e lógicas para justificar a compra".
+A sua premissa principal é: "O cliente busca informações técnicas e manuais de uso para justificar a compra, além de precisarmos gerar tração em múltiplos canais".
 
-REGRA ABSOLUTA 1: NENHUM EMOJI PODE SER USADO NA DESCRIÇÃO. Marketplaces (como Mercado Livre) bloqueiam integrações via API que contêm emojis. É ESTRITAMENTE PROIBIDO gerar emojis.
-REGRA ABSOLUTA 2: NÃO USE tags HTML. Use formato Plain Text (letras MAIÚSCULAS para títulos de seção, hifens para listas e quebras de linha duplas para separar blocos).
+REGRA DE PESQUISA OBRIGATÓRIA (GROUNDING): 
+Antes de gerar o conteúdo final, o [AGENTE 1] DEVE acessar a internet (Google Search) para pesquisar pelo nome do produto e seus concorrentes. Extraia ativamente: 
+- Informações técnicas ocultas ou manuais que faltaram na descrição original.
+- Dores dos clientes nas FAQs dos concorrentes.
+- Argumentos de venda e padrões de mercado para este nicho.
 
-Siga RIGOROSAMENTE esta estrutura de informação técnica (Padrão Ouro de Conversão pela Lógica: 20% Persuasão, 50% Informação, 30% Segurança):
-1. Título Atrativo: Claro, focado no produto e contendo a palavra-chave principal (Retorne no campo "novoTitulo").
-2. Gancho Inicial (Persuasão 20%): Uma frase objetiva informando o que é o produto. APROVEITE ESTA SEÇÃO PARA INJETAR CAUDAS LONGAS E PALAVRAS-CHAVE DE SEO DE FORMA NATURAL para agradar os algoritmos de busca. ATENÇÃO: NÃO ESCREVA AS PALAVRAS "GANCHO INICIAL" no texto final, apenas escreva a frase diretamente no início da descrição.
-3. Descrição Técnica e Durabilidade (Informação 50%): O que o produto faz, materiais, resistência e expectativa de durabilidade.
-4. Instruções de Uso (Informação 50%): Passo a passo prático, claro e direto.
-5. Especificações Técnicas, Segurança e Validade (Segurança 30%): Ficha técnica completa, medidas exatas, alertas, voltagem, composição, FISPQ.
-6. Garantia, Devolução e Envio (Segurança 30%): Prazos de garantia, devolução e regras de envio.
-7. Perguntas Frequentes (FAQ): Dúvidas técnicas (compatibilidade, limpeza, etc).
+REGRA ABSOLUTA 1: NENHUM EMOJI PODE SER USADO NA DESCRIÇÃO DO PRODUTO. Marketplaces (como Mercado Livre) bloqueiam integrações via API que contêm emojis.
+REGRA ABSOLUTA 2: Apenas a novaDescricaoHtml deve usar HTML. Os outros campos de marketing (emails, ads, social) devem usar texto simples com espaçamentos claros.
 
-SUA SEGUNDA TAREFA É AVALIAR O SEO E DAR NOTAS COMPARATIVAS (0 a 100):
-- scoreTituloOriginal: Qual a nota de SEO do título original? (Se o original já estiver perfeito, dê 95 a 100).
-- scoreTituloNovo: Qual a nota de SEO do título otimizado que você criou?
-- scoreDescricaoOriginal: Qual a nota da descrição original? Baseie a nota na proporção áurea (20% persuasão, 50% informação técnica, 30% segurança). ATENÇÃO: Se a descrição original já estiver EXCELENTE, rica em HTML, técnica e bem formatada (pois pode já ter sido otimizada por você antes), você DEVE dar uma nota de 90 a 100 e reconhecer a alta qualidade, sem forçar notas baixas artificialmente.
-- scoreDescricaoNova: Qual a nota da sua nova descrição? (Deve ser sempre maior ou igual à original, próximo a 100).
-- dicasMelhoria (Array de Strings): Diga ao lojista quais dados TÉCNICOS faltaram no original e que ele precisa providenciar no ERP para o futuro (ex: "Falta informar o material", "Insira a ficha FISPQ"). Se a descrição original já estiver nota 100 e não faltar nada, retorne um array vazio [].
+Siga RIGOROSAMENTE a estrutura da Descrição (feita pelo Agente 2):
+1. Gancho Inicial (Persuasão 20%): Frase objetiva com palavras-chave.
+2. Descrição Técnica e Durabilidade (Informação 50%): O que faz, materiais, durabilidade (Enriquecido pela Web).
+3. Instruções de Uso (Informação 50%): Passo a passo prático (Manuais reais da web).
+4. Especificações Técnicas (Segurança 30%): Ficha técnica, medidas, FISPQ.
+5. Garantia/Devolução e FAQ: Baseado nas dúvidas reais dos concorrentes.
 
-Retorne os dados ESTRITAMENTE em formato JSON puro.`;
+SUA SEGUNDA TAREFA (feita pelo Agente 1): AVALIAR SEO E DAR NOTAS COMPARATIVAS (0 a 100):
+- scoreTituloOriginal, scoreTituloNovo, scoreDescricaoOriginal, scoreDescricaoNova.
+- dicasMelhoria (Array de Strings): Dados TÉCNICOS que faltaram no original e devem ser providenciados pelo lojista.
+
+SUA TERCEIRA TAREFA (Agentes 3 e 4): GERAR MATERIAIS DE MARKETING
+Crie uma campanha completa para este produto contendo Emails, Posts para Redes Sociais e Copys para Facebook/Instagram Ads.
+
+Retorne ESTRITAMENTE em formato JSON puro.`;
     
-    const prompt = `Analise este produto, deduza o público-alvo e as tags de SEO. Avalie os dados originais e gere os scores e dicas. Em seguida, crie uma descrição altamente técnica, informativa, SEM EMOJIS e com forte injeção de SEO no gancho inicial. OBRIGATÓRIO: A novaDescricaoHtml DEVE usar tags HTML VÁLIDAS (<p>, <h3>, <ul>, <li>, <strong>, <br>) para formatação correta de parágrafos, subtítulos e listas. NUNCA use \n para quebra de linha. SE o produto já tiver uma Marca Original cadastrada, OBRIGATORIAMENTE use a mesma marca.
+    const prompt = `Analise este produto, convoque os seus Múltiplos Agentes, acesse a internet para investigar concorrentes diretos, deduza o público-alvo e gere todo o pacote de marketing. OBRIGATÓRIO: A novaDescricaoHtml DEVE usar tags HTML VÁLIDAS. SE o produto já tiver uma Marca Original cadastrada, OBRIGATORIAMENTE use a mesma marca.
 
-Produto original:
+Produto original a ser pesquisado:
 Nome: ${productData.name}
 Preço: ${productData.price}
 Marca Original: ${productData.brand || 'Não cadastrada'}
 Tags Originais: ${productData.tags || 'Sem tags'}
-Descrição Original: ${productData.description || 'Sem descrição'}
+Descrição Original (geralmente pobre): ${productData.description || 'Sem descrição'}
 
 Formato obrigatório de retorno (JSON puro):
 {
@@ -165,12 +173,15 @@ Formato obrigatório de retorno (JSON puro):
   "tags": "tag1, tag2, tag longa, palavra-chave",
   "marca": "Marca do Produto",
   "urlProduto": "nome-atrativo-separado-por-hifens",
-  "novaDescricaoHtml": "GANCHO INICIAL AQUI (COM PALAVRAS-CHAVE SEO)\\n\\nDESCRIÇÃO TÉCNICA E DURABILIDADE\\n\\n- Benefício 1...\\n- Benefício 2...\\n\\nINSTRUÇÕES DE USO\\n\\n1. Passo 1...\\n\\nESPECIFICAÇÕES TÉCNICAS E SEGURANÇA\\n\\n- Peso...\\n\\nGARANTIA, DEVOLUÇÃO E ENVIO\\n\\n- Garantia de fábrica...\\n- Devolução de 7 dias...\\n- Envio em 24h...\\n\\nPERGUNTAS FREQUENTES (FAQ)\\n\\n1. Pergunta 1?\\nResposta direta...",
+  "novaDescricaoHtml": "GANCHO INICIAL AQUI (COM PALAVRAS-CHAVE SEO)\\n\\n<h3>DESCRIÇÃO TÉCNICA E DURABILIDADE</h3>\\n\\n- Benefício 1...\\n\\n<h3>INSTRUÇÕES DE USO</h3>\\n\\n1. Passo 1...\\n\\n<h3>ESPECIFICAÇÕES TÉCNICAS E SEGURANÇA</h3>\\n\\n- Peso...\\n\\n<h3>GARANTIA, DEVOLUÇÃO E ENVIO</h3>\\n\\n- Garantia de fábrica...\\n\\n<h3>PERGUNTAS FREQUENTES (FAQ)</h3>\\n\\n1. Pergunta 1?\\nResposta direta baseada em concorrentes...",
   "scoreTituloOriginal": 40,
   "scoreTituloNovo": 98,
   "scoreDescricaoOriginal": 30,
   "scoreDescricaoNova": 100,
-  "dicasMelhoria": ["Falta informar o material", "Adicione a Ficha Técnica / FISPQ", "Informe a garantia do fabricante"]
+  "dicasMelhoria": ["Falta informar o material"],
+  "emailMarketing": "ASSUNTO: ...\\n\\nCORPO DO EMAIL focado em nutrir e converter o cliente sobre este produto, citando benefícios e escassez.",
+  "socialMediaPosts": ["POST 1 (Instagram): Copy do post com hashtags.", "POST 2 (TikTok): Ideia de vídeo curto e copy."],
+  "facebookAds": ["AD 1 - Headline: ...\\nTexto Principal: ...", "AD 2 - Headline: ...\\nTexto Principal: ..."]
 }`;
 
     try {
@@ -181,6 +192,7 @@ Formato obrigatório de retorno (JSON puro):
         config: {
           systemInstruction,
           temperature: 0.3,
+          tools: [{ googleSearch: {} }],
           responseMimeType: 'application/json'
         }
       });

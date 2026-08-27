@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "nuvemshop:test": "tsx src/lab/fetch_demo.ts",
     "dev": "tsx server.ts",
     "build": "tsc",
     "preview": "node server.js",

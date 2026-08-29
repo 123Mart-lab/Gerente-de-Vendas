@@ -1,4 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import fs from 'fs';
+let content = fs.readFileSync('src/components/publicidade/CompetitiveIntelligence.tsx', 'utf8');
+
+const cotacoesUI = `import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Radar, Search, ExternalLink, Activity, Target } from 'lucide-react';
 import TaskAuditPanel, { AuditTask } from './TaskAuditPanel';
@@ -151,4 +154,6 @@ export default function CompetitiveIntelligence() {
       </div>
     </div>
   );
-}
+}`;
+
+fs.writeFileSync('src/components/publicidade/CompetitiveIntelligence.tsx', cotacoesUI, 'utf8');

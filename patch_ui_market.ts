@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import fs from 'fs';
+let content = `import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Search, TrendingUp, ShoppingCart, Info, Activity } from 'lucide-react';
 import TaskAuditPanel, { AuditTask } from './TaskAuditPanel';
@@ -128,3 +129,5 @@ export default function MarketResearcher() {
     </div>
   );
 }
+`;
+fs.writeFileSync('src/components/publicidade/MarketResearcher.tsx', content, 'utf8');

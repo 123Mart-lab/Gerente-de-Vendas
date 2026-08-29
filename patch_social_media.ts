@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+import fs from 'fs';
+let content = `import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { Share2, Sparkles, Video, MessageCircle, Send, FileText, ChevronDown, Activity, CheckCircle2 } from 'lucide-react';
 
@@ -34,7 +35,7 @@ export default function SocialMedia() {
     const fetchProducts = async () => {
       setIsSearchingProducts(true);
       try {
-        const res = await axios.get(`/api/marketing/products?q=${encodeURIComponent(searchTerm)}&limit=10`);
+        const res = await axios.get(\`/api/marketing/products?q=\${encodeURIComponent(searchTerm)}&limit=10\`);
         if (res.data) setProducts(res.data);
       } catch (err) {
         console.error("Erro ao buscar produtos", err);
@@ -200,3 +201,5 @@ export default function SocialMedia() {
     </div>
   );
 }
+`;
+fs.writeFileSync('src/components/marketing/SocialMedia.tsx', content, 'utf8');

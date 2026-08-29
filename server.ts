@@ -300,6 +300,53 @@ app.post('/api/marketing/audit-logs', (req, res) => {
 });
 
 
+
+app.post('/api/marketing/viral-content', async (req, res) => {
+  try {
+    const { productData } = req.body;
+    const result = await aiService.generateViralContent(productData);
+    res.json(result);
+  } catch (err: any) {
+    console.error('Erro na geração de conteúdo viral:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+
+app.post('/api/marketing/ads-campaign', async (req, res) => {
+  try {
+    const { productData, platform } = req.body;
+    const result = await aiService.generateAdsCampaign(productData, platform);
+    res.json(result);
+  } catch (err: any) {
+    console.error('Erro ao gerar campanha ads:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/marketing/product-quotes', async (req, res) => {
+  try {
+    const { productName } = req.body;
+    const result = await aiService.searchProductQuotes(productName);
+    res.json(result);
+  } catch (err: any) {
+    console.error('Erro ao buscar cotações do produto:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/marketing/marketplace-trends', async (req, res) => {
+  try {
+    const { query } = req.body;
+    const result = await aiService.searchMarketplaceTrends(query);
+    res.json(result);
+  } catch (err: any) {
+    console.error('Erro na pesquisa de trends:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/marketing/market-research', async (req, res) => {
   try {
     const { links, financialKnowledgeBase } = req.body;

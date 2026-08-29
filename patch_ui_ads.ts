@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+import fs from 'fs';
+let content = `import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { Target, Search, Activity, CheckCircle2, TrendingUp, Layers, MousePointerClick, DollarSign, Package } from 'lucide-react';
 
@@ -35,7 +36,7 @@ export default function AdsManager() {
     const fetchProducts = async () => {
       setIsSearchingProducts(true);
       try {
-        const res = await axios.get(`/api/marketing/products?q=${encodeURIComponent(searchTerm)}&limit=10`);
+        const res = await axios.get(\`/api/marketing/products?q=\${encodeURIComponent(searchTerm)}&limit=10\`);
         if (res.data) setProducts(res.data);
       } catch (err) {
         console.error("Erro ao buscar produtos", err);
@@ -242,3 +243,5 @@ export default function AdsManager() {
     </div>
   );
 }
+`;
+fs.writeFileSync('src/components/marketing/AdsManager.tsx', content, 'utf8');

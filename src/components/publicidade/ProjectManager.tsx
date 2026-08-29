@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
-import { Briefcase, Search, Sparkles, Plus, ArrowRight, CheckCircle2, Upload, File, X, Image as ImageIcon } from 'lucide-react';
+import { Briefcase, Search, Sparkles, Plus, ArrowRight, CheckCircle2, Upload, File, X, Image as ImageIcon, DollarSign } from 'lucide-react';
 import TaskAuditPanel, { AuditTask } from './TaskAuditPanel';
 
 export default function ProjectManager() {
@@ -70,6 +70,44 @@ function OtimizacaoAnuncios() {
   const [progress, setProgress] = useState(0);
 
   const [mockHistory, setMockHistory] = useState<AuditTask[]>([]);
+  
+  const [seoFiltersEnabled, setSeoFiltersEnabled] = useState(false);
+  const [seoScoreMin, setSeoScoreMin] = useState<number>(0);
+  const [seoScoreMax, setSeoScoreMax] = useState<number>(100);
+  const [ignoreKits, setIgnoreKits] = useState(false);
+  const [ignoreAlteredCondition, setIgnoreAlteredCondition] = useState<'less' | 'more'>('less');
+  const [ignoreAlteredDays, setIgnoreAlteredDays] = useState<number>(7);
+  const isInitialMount = useRef(true);
+
+  // Load history from backend
+  useEffect(() => {
+    axios.get('/api/marketing/seo-filters').then(res => {
+      if (res.data) {
+        setSeoFiltersEnabled(res.data.enabled);
+        setSeoScoreMin(res.data.min);
+        setSeoScoreMax(res.data.max);
+        setIgnoreKits(res.data.ignoreKits);
+        setIgnoreAlteredCondition(res.data.alteredCondition);
+        setIgnoreAlteredDays(res.data.alteredDays);
+      }
+    }).catch(console.error);
+  }, []);
+
+  // Persist filters to API so the server knows about them
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+    axios.post('/api/marketing/seo-filters', {
+      enabled: seoFiltersEnabled,
+      min: seoScoreMin,
+      max: seoScoreMax,
+      ignoreKits: ignoreKits,
+      alteredCondition: ignoreAlteredCondition,
+      alteredDays: ignoreAlteredDays
+    }).catch(console.error);
+  }, [seoFiltersEnabled, seoScoreMin, seoScoreMax, ignoreKits, ignoreAlteredCondition, ignoreAlteredDays]);
 
   useEffect(() => {
     const fetchLogs = async () => {
@@ -156,6 +194,73 @@ function OtimizacaoAnuncios() {
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
         <h3 className="text-lg font-bold text-slate-800 mb-4">Orquestração: Otimização de Anúncio Existente</h3>
         <p className="text-sm text-slate-600 mb-6">Selecione um produto da base para enviar para a esteira de otimização completa (Pesquisador &rarr; Monitor &rarr; Especialista SEO &rarr; Diretor de Arte).</p>
+        
+        {/* Toggle Filtros de SEO */}
+        <div className="flex flex-col gap-2 mb-6 bg-white border border-slate-200 rounded-lg p-3 w-full shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="flex flex-col">
+              <span className={`text-sm font-semibold ${seoFiltersEnabled ? 'text-indigo-700' : 'text-slate-700'}`}>Filtros de SEO</span>
+              <span className={`text-[10px] font-medium ${seoFiltersEnabled ? 'text-indigo-500' : 'text-slate-400'}`}>
+                Restringe o Piloto Automático e as orquestrações do Gerente
+              </span>
+            </div>
+            <button 
+              onClick={() => setSeoFiltersEnabled(!seoFiltersEnabled)}
+              className={`w-10 h-6 rounded-full transition-colors flex items-center px-1 ${seoFiltersEnabled ? 'bg-indigo-600 justify-end' : 'bg-slate-200 justify-start'}`}
+            >
+              <div className="w-4 h-4 bg-white rounded-full shadow-sm"></div>
+            </button>
+          </div>
+          
+          <div className={`flex flex-col gap-2 mt-2 transition-all ${seoFiltersEnabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+              <span className="font-medium whitespace-nowrap">Ignorar SEO entre</span>
+              <input 
+                type="number" min="0" max="100" 
+                value={seoScoreMin} 
+                onChange={e => setSeoScoreMin(Number(e.target.value))}
+                className="w-14 p-1 border border-slate-200 rounded text-center focus:border-indigo-400 focus:outline-none" 
+              />
+              <span className="font-medium">% e</span>
+              <input 
+                type="number" min="0" max="100" 
+                value={seoScoreMax} 
+                onChange={e => setSeoScoreMax(Number(e.target.value))}
+                className="w-14 p-1 border border-slate-200 rounded text-center focus:border-indigo-400 focus:outline-none" 
+              />
+              <span className="font-medium">%</span>
+            </div>
+            
+            <label className="flex items-center gap-2 text-xs text-slate-600 font-medium cursor-pointer">
+              <input 
+                type="checkbox" 
+                checked={ignoreKits}
+                onChange={e => setIgnoreKits(e.target.checked)}
+                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 cursor-pointer" 
+              />
+              Ignorar variações de kits
+            </label>
+            
+            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+              <span className="font-medium whitespace-nowrap">Ignorar alterados a</span>
+              <select 
+                value={ignoreAlteredCondition}
+                onChange={e => setIgnoreAlteredCondition(e.target.value as 'less'|'more')}
+                className="p-1 border border-slate-200 rounded focus:border-indigo-400 focus:outline-none bg-white"
+              >
+                <option value="less">menos de</option>
+                <option value="more">mais de</option>
+              </select>
+              <input 
+                type="number" min="1" 
+                value={ignoreAlteredDays}
+                onChange={e => setIgnoreAlteredDays(Number(e.target.value))}
+                className="w-14 p-1 border border-slate-200 rounded text-center focus:border-indigo-400 focus:outline-none" 
+              />
+              <span className="font-medium">dias</span>
+            </div>
+          </div>
+        </div>
         
         <div className="flex gap-4 items-start">
           <div className="relative flex-1 w-full" ref={dropdownRef}>
@@ -271,6 +376,11 @@ function PesquisaMercado() {
   const [files, setFiles] = useState<File[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [kbPlatformFee, setKbPlatformFee] = useState('');
+  const [kbIcms, setKbIcms] = useState('');
+  const [kbTaxes, setKbTaxes] = useState('');
+  const [kbLogistics, setKbLogistics] = useState('');
+  const [kbMargin, setKbMargin] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const updateLink = (index: number, value: string) => {

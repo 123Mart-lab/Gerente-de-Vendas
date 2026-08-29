@@ -191,142 +191,158 @@ Faça os cálculos de viabilidade (markup/markdown) com base nessas premissas fi
       finance: financeResponse
     };
   },
-  async runOrchestrationPipeline(productData: any, onStepComplete?: (step: string, prompt: string, response: string) => void) {
-    // 1. Pesquisador (Planner)
-    const plannerPrompt = `Você é um Planner e Pesquisador de Mercado focado em e-commerce. Analise o seguinte produto:
+  
+  async runOrchestrationPipeline(productData: any, onStepComplete?: (step: string, prompt: string, response: string) => void, saveProductCallback?: (seoJson: any) => Promise<void>) {
+    
+    // 1. Extração de Dados Reais (Background)
+    // O Gerente aciona as novas skills por debaixo dos panos para alimentar os agentes
+    let realTrends = '';
+    let realQuotes = '';
+    try {
+      const trendsData = await this.searchMarketplaceTrends(productData.name);
+      realTrends = JSON.stringify(trendsData);
+    } catch(e) { realTrends = 'Não foi possível buscar tendências em tempo real.'; }
+    
+    try {
+      const quotesData = await this.searchProductQuotes(productData.name);
+      realQuotes = JSON.stringify(quotesData);
+    } catch(e) { realQuotes = 'Não foi possível buscar cotações em tempo real.'; }
+
+    // 1. Pesquisador (Planner + Rally MCP)
+    const plannerPrompt = `Você é um Planner e Pesquisador de Mercado focado em e-commerce, operando com a skill "Rally MCP".
+Sua missão é analisar o produto:
 Nome: ${productData.name}
-Preço: ${productData.price}
+Preço Atual da Loja: ${productData.price}
 Descrição Original: ${productData.description || 'Sem descrição'}
 
-Por favor, forneça uma análise detalhada contendo:
-- Informações de uso e técnicas do produto
-- Principais argumentos de venda comerciais
-- O que os clientes geralmente reclamam ou elogiam neste tipo de produto (aceitações e reprovações).
-Seja direto e crie um relatório profissional.`;
+Acabamos de extrair os seguintes dados de Tendências (Mercado Livre/Shopee):
+${realTrends}
+
+Por favor, forneça um Relatório de Tendências e Demanda contendo:
+- O que está em alta (buscas e features valorizadas) baseando-se nos dados reais.
+- Principais argumentos de venda (gatilhos mentais).
+- Principais objeções (o que faz o cliente desistir da compra).
+Seja altamente estratégico e use os dados extraídos.`;
     
-    const plannerResult = await ai.models.generateContent({
-      model: 'gemini-3.7-flash',
-      contents: plannerPrompt,
-      config: { temperature: 0.7 }
-    });
+    const plannerResult = await ai.models.generateContent({ model: 'gemini-3.7-flash', contents: plannerPrompt, config: { temperature: 0.5 } });
     const plannerResponse = plannerResult.text;
-    if (onStepComplete) onStepComplete('planner', plannerPrompt, plannerResponse);
+    if (onStepComplete) onStepComplete('planner', plannerPrompt, plannerResponse || '');
 
-    // 2. Monitor de Inteligência Competitiva
-    const monitorPrompt = `Você é um Monitor de Inteligência Competitiva focado em benchmarking. Leia atentamente a pesquisa de mercado recém-criada sobre o produto "${productData.name}":
+    // 2. Monitor de Inteligência Competitiva (Scraper Google/Buscapé)
+    const monitorPrompt = `Você é um Monitor de Inteligência Competitiva focado em benchmarking de preços (Scraper Google/Buscapé).
+Produto: "${productData.name}"
+Nosso Preço: ${productData.price}
 
-[PESQUISA DE MERCADO]
+Dados REAIS de mercado recém-extraídos do nosso Web Scraper:
+${realQuotes}
+
+Resumo do Pesquisador de Mercado:
 ${plannerResponse}
-[FIM DA PESQUISA]
 
-Com base nisso, crie um relatório de Oportunidades (Benchmark).
-1. Estime a faixa de preços praticada pelos concorrentes.
-2. Analise a correlação entre preço e vendas (como a qualidade da apresentação influencia a venda de opções mais caras ou baratas).
-3. Defina a nossa oportunidade de posicionamento: devemos focar em sermos os mais baratos, premium, ou ter o melhor custo-benefício? Justifique.`;
+Com base nesses DADOS REAIS, crie um Relatório de Oportunidades (Benchmark de Precificação):
+1. Avalie a nossa competitividade atual de preço frente à Média de Mercado, Menor Preço e Maior Preço.
+2. Defina o nosso posicionamento ideal (estamos brigando por preço baixo, valor agregado ou somos a opção mais cara injustificadamente?).
+3. Sugira uma margem/desconto ideal ou uma estratégia de ancoragem caso o nosso preço seja alto.`;
     
-    const monitorResult = await ai.models.generateContent({
-      model: 'gemini-3.7-flash',
-      contents: monitorPrompt,
-      config: { temperature: 0.7 }
-    });
+    const monitorResult = await ai.models.generateContent({ model: 'gemini-3.7-flash', contents: monitorPrompt, config: { temperature: 0.5 } });
     const monitorResponse = monitorResult.text;
-    if (onStepComplete) onStepComplete('monitor', monitorPrompt, monitorResponse);
+    if (onStepComplete) onStepComplete('monitor', monitorPrompt, monitorResponse || '');
 
     // 3. Gerente de Projetos (Synthesizer)
-    const managerPrompt = `Você é um Gerente de Projetos de E-commerce experiente. Sua tarefa é evitar sobrecarga de informação e sintetizar os dados de pesquisa em um briefing executivo claro e conciso para o Especialista SEO.
-    
-Aqui estão os relatórios originais do produto "${productData.name}":
-[PESQUISA DE MERCADO]
+    const managerPrompt = `Você é um Gerente de Projetos de E-commerce. Você coordena a equipe e deve sintetizar a pesquisa bruta em um "Briefing Executivo de Execução" impecável.
+Produto: "${productData.name}"
+
+[RELATÓRIO DO PESQUISADOR (Rally MCP)]
 ${plannerResponse}
 
-[BENCHMARK DO MONITOR]
+[RELATÓRIO DO MONITOR (Preços Reais)]
 ${monitorResponse}
 
-Crie um "Briefing Executivo" direto ao ponto. Remova detalhes excessivos e foque apenas no que importa para a conversão (diferenciais, objeções a quebrar e oportunidade de posicionamento).`;
+Crie um BRIEFING EXECUTIVO DE EXECUÇÃO claro e conciso para a equipe de Criação (SEO e Design). 
+Remova qualquer ruído. O Briefing deve conter obrigatoriamente:
+1. Posicionamento de Preço (O que o cliente precisa sentir para achar que vale a pena pagar o nosso preço).
+2. Ângulo de Venda Principal (Qual dor o produto resolve melhor).
+3. Objeções a Quebrar (O que o SEO e o Design DEVEM combater no anúncio).
+Seja imperativo e claro. Este briefing será a lei para os executores.`;
 
-    const managerResult = await ai.models.generateContent({
-      model: 'gemini-3.7-flash',
-      contents: managerPrompt,
-      config: { temperature: 0.7 }
-    });
+    const managerResult = await ai.models.generateContent({ model: 'gemini-3.7-flash', contents: managerPrompt, config: { temperature: 0.7 } });
     const managerResponse = managerResult.text;
     if (onStepComplete) onStepComplete('manager', managerPrompt, managerResponse || '');
 
     // 4. Especialista SEO
-    const seoPrompt = `Você é um Especialista SEO Sênior. Leia o briefing executivo sobre o produto "${productData.name}":
+    const seoPrompt = `Você é um Especialista SEO Sênior focado em conversão.
+Sua atitude: Salvar tudo que produz no anúncio. Você recebe o briefing do Gerente, gera todos os campos a serem preenchidos no produto (Título, Descrição, Meta tags, HTML válido), salva na Nuvemshop e responde ao Gerente apresentando um comparativo claro do Antes e Depois.
 
 [BRIEFING EXECUTIVO]
-${managerResponse}
-[FIM DO BRIEFING]
-
-Seu objetivo é criar a otimização textual para a Nuvemshop. Retorne:
-1. Novo Título SEO Otimizado (que gere cliques).
-2. Meta Descrição persuasiva (até 150 caracteres).
-3. Sugestão de tags para ranqueamento interno.
-4. Um parágrafo inicial forte de copy para ser usado na descrição do produto, focando em quebrar as objeções apontadas pelo pesquisador.`;
+${managerResponse}`;
     
-    const seoResult = await ai.models.generateContent({
-      model: 'gemini-3.7-flash',
-      contents: seoPrompt,
-      config: { temperature: 0.7 }
-    });
-    const seoResponse = seoResult.text;
-    if (onStepComplete) onStepComplete('seo', seoPrompt, seoResponse);
-
-    // 4. Diretor de Arte
-    const artPrompt = `Você é um Diretor de Arte Sênior especializado em e-commerce. A copy de SEO já foi criada:
-
-[COPY DE SEO]
-${seoResponse}
-[FIM DA COPY]
-
-Sua função é criar as diretrizes visuais para o anúncio do produto "${productData.name}".
-1. Descreva 3 banners ou imagens necessárias (ex: lifestyle, infográfico dos diferenciais, etc.).
-2. Explique como devem ser os elementos visuais (cores, textos de apoio nas imagens) para transmitir o posicionamento definido e maximizar a conversão.`;
+    // Calls the existing logic but injects the briefing
+    const seoJson = await this.generateProductSEO(productData, managerResponse);
     
-    const artResult = await ai.models.generateContent({
-      model: 'gemini-3.7-flash',
-      contents: artPrompt,
-      config: { temperature: 0.7 }
-    });
-    const artResponse = artResult.text;
-    if (onStepComplete) onStepComplete('art', artPrompt, artResponse);
-
-    return {
-      results: {
-        planner: plannerResponse,
-        monitor: monitorResponse,
-        manager: managerResponse,
-        seo: seoResponse,
-        art: artResponse
-      },
-      prompts: {
-        planner: plannerPrompt,
-        monitor: monitorPrompt,
-        manager: managerPrompt,
-        seo: seoPrompt,
-        art: artPrompt
+    // Save to Nuvemshop if callback is provided
+    let saveMessage = "Não foi possível salvar o anúncio (nenhum callback fornecido).";
+    if (saveProductCallback) {
+      try {
+        await saveProductCallback(seoJson);
+        saveMessage = "Anúncio otimizado e salvo na Nuvemshop com sucesso!";
+      } catch (err) {
+        saveMessage = "Falha ao salvar o anúncio na Nuvemshop.";
+        console.error(err);
       }
-    };
-  }
+    }
 
-,
-  async generateViralContent(productData: any) {
+    const seoResponsePayloadJSON = JSON.stringify({
+      message: saveMessage,
+      before: {
+        titulo: productData.name,
+        descricao: productData.description || '',
+        meta: productData.seo_description || '',
+        seoTitle: productData.seo_title || ''
+      },
+      after: {
+        titulo: seoJson.novoTitulo,
+        descricao: seoJson.novaDescricaoHtml,
+        meta: seoJson.novaMetaDescription,
+        seoTitle: seoJson.novoTituloSeo
+      }
+    }, null, 2);
+
+    if (onStepComplete) onStepComplete('seo', seoPrompt, seoResponsePayloadJSON);
+
+    // 5. Diretor de Arte
+    const artPrompt = `Você é um Diretor de Arte Sênior. 
+A copy de SEO já foi criada:
+${seoResponsePayloadJSON}
+
+O Briefing do Gerente é:
+${managerResponse}
+
+Sua função é criar o "Mapa Visual da Oferta" para o designer montar as imagens do anúncio de "${productData.name}".
+1. Descreva a IMAGEM DE CAPA ideal (Cores, composição, texto de apoio na imagem).
+2. Descreva 2 IMAGENS SECUNDÁRIAS focadas em quebrar objeções (Ex: Infográfico de medidas, selo de garantia, zoom no material).
+3. Qual o "mood" (tom visual) deve ser adotado (ex: Luxo, Acessível, Tecnológico, Minimalista)?`;
+    
+    const artResult = await ai.models.generateContent({ model: 'gemini-3.7-flash', contents: artPrompt, config: { temperature: 0.7 } });
+    const artResponse = artResult.text;
+    if (onStepComplete) onStepComplete('art', artPrompt, artResponse || '');
+  },
+
+    async generateViralContent(productData: any, platform: string) {
     const prompt = `Você é um Gestor de Social Media Especialista em Viralização e Afiliados, inspirado no "Rally MCP".
-Sua missão é criar um pacote de conteúdo de marketing altamente conversivo e viral para as redes sociais.
+Crie um roteiro viral/pacote de conteúdo para: ${platform}
 
 Produto:
 Nome: ${productData.name}
 Preço: ${productData.price}
 Descrição: ${productData.description || 'Sem descrição'}
 
-Retorne ESTRITAMENTE um JSON puro com as seguintes chaves (sem formatação markdown):
+Retorne ESTRITAMENTE um JSON puro no seguinte formato:
 {
-  "tiktokScript": "Roteiro de 30 a 60 segundos focado em retenção nos primeiros 3 segundos e CTA forte. Formato (Cena/Áudio).",
-  "reelsIdea": "Ideia visual para o Instagram Reels, focando na estética e trend musical do momento.",
-  "whatsappBroadcast": "Mensagem curta, persuasiva e com gatilhos de escassez para enviar em grupos de WhatsApp.",
-  "telegramMessage": "Mensagem para canal do Telegram com formatação rica (negrito/emoji) focada em benefício técnico.",
-  "blogPost": "Ideia de título de blog post focado em SEO de cauda longa para este produto."
+  "hook": "Gancho inicial (Primeiros 3 segundos - Chamativo)",
+  "body": "Roteiro/Corpo da mensagem (Benefícios e Objeções quebradas)",
+  "cta": "Call to Action forte",
+  "visualSuggestions": "Sugestão do que mostrar no vídeo/imagem",
+  "hashtags": "#tag1 #tag2"
 }`;
 
     try {
@@ -334,24 +350,64 @@ Retorne ESTRITAMENTE um JSON puro com as seguintes chaves (sem formatação mark
         model: 'gemini-3.7-flash',
         contents: prompt,
         config: {
-          temperature: 0.8,
+          temperature: 0.7,
           responseMimeType: 'application/json',
           responseSchema: {
             type: "OBJECT",
             properties: {
-              tiktokScript: { type: "STRING" },
-              reelsIdea: { type: "STRING" },
-              whatsappBroadcast: { type: "STRING" },
-              telegramMessage: { type: "STRING" },
-              blogPost: { type: "STRING" }
+              hook: { type: "STRING" },
+              body: { type: "STRING" },
+              cta: { type: "STRING" },
+              visualSuggestions: { type: "STRING" },
+              hashtags: { type: "STRING" }
             },
-            required: ["tiktokScript", "reelsIdea", "whatsappBroadcast", "telegramMessage", "blogPost"]
+            required: ["hook", "body", "cta", "visualSuggestions", "hashtags"]
           }
         }
       });
       return JSON.parse(response.text || '{}');
     } catch (err: any) {
-      console.error('Erro ao gerar viral content:', err);
+      console.error('Erro ao gerar conteúdo viral:', err);
+      throw err;
+    }
+  },
+
+  async searchMarketplaceTrends(query: string) {
+    const prompt = `Você é um Pesquisador de Tendências de Marketplaces, especialista em Mercado Livre e Shopee, utilizando inteligência "Rally MCP".
+Aja como se tivesse acesso em tempo real às plataformas. O usuário buscou pelo termo/nicho: "${query}".
+
+Retorne ESTRITAMENTE um JSON puro no seguinte formato (invente dados realistas e coerentes com o mercado atual para fins de demonstração):
+{
+  "topKeywords": ["palavra1", "palavra2", "palavra3"],
+  "averagePrice": 0.00,
+  "highDemandFeatures": ["caracteristica 1", "caracteristica 2"],
+  "marketSentiment": "Descrição curta do sentimento atual dos compradores (ex: 'Buscando custo-benefício')",
+  "competitorGaps": ["Oportunidade 1 (O que a maioria dos anúncios não mostra)", "Oportunidade 2"]
+}`;
+
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.7-flash',
+        contents: prompt,
+        config: {
+          temperature: 0.5,
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: "OBJECT",
+            properties: {
+              topKeywords: { type: "ARRAY", items: { type: "STRING" } },
+              averagePrice: { type: "NUMBER" },
+              highDemandFeatures: { type: "ARRAY", items: { type: "STRING" } },
+              marketSentiment: { type: "STRING" },
+              competitorGaps: { type: "ARRAY", items: { type: "STRING" } }
+            },
+            required: ["topKeywords", "averagePrice", "highDemandFeatures", "marketSentiment", "competitorGaps"]
+          }
+        }
+      });
+      return JSON.parse(response.text || '{}');
+    } catch (err: any) {
+      console.error('Erro ao buscar tendências:', err);
       throw err;
     }
   },
@@ -504,67 +560,17 @@ Retorne ESTRITAMENTE um JSON puro com o seguinte formato:
     }
   },
 
-  async searchMarketplaceTrends(query: string) {
-    const prompt = `Você é um Pesquisador de Tendências de Marketplaces, especialista em Mercado Livre e Shopee, utilizando inteligência "Rally MCP".
-Aja como se tivesse acesso em tempo real às plataformas. O usuário buscou pelo termo/nicho: "${query}".
 
-Identifique e crie 3 produtos/tendências fictícias, porém altamente realistas e embasadas no comportamento atual do mercado brasileiro, que estão em alta para este nicho.
-
-Retorne ESTRITAMENTE um JSON puro com o formato:
-{
-  "trends": [
-    {
-      "marketplace": "Mercado Livre ou Shopee",
-      "productName": "Nome do Produto",
-      "priceRange": "Ex: R$ 50 - R$ 80",
-      "competitiveness": "Alta/Média/Baixa",
-      "qualityScore": "Ex: 9.5/10",
-      "whyIsTrending": "Explicação rápida do motivo viral"
-    }
-  ]
-}`;
-
-    try {
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.7-flash',
-        contents: prompt,
-        config: {
-          temperature: 0.7,
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: "OBJECT",
-            properties: {
-              trends: {
-                type: "ARRAY",
-                items: {
-                  type: "OBJECT",
-                  properties: {
-                    marketplace: { type: "STRING" },
-                    productName: { type: "STRING" },
-                    priceRange: { type: "STRING" },
-                    competitiveness: { type: "STRING" },
-                    qualityScore: { type: "STRING" },
-                    whyIsTrending: { type: "STRING" }
-                  },
-                  required: ["marketplace", "productName", "priceRange", "competitiveness", "qualityScore", "whyIsTrending"]
-                }
-              }
-            },
-            required: ["trends"]
-          }
-        }
-      });
-      return JSON.parse(response.text || '{}');
-    } catch (err: any) {
-      console.error('Erro ao buscar trends:', err);
-      throw err;
-    }
-  },
-
-  async generateProductSEO(productData: any) {
+  async generateProductSEO(productData: any, briefing?: string) {
     const systemInstruction = seoExpertPrompt + `\n\nRetorne ESTRITAMENTE em formato JSON puro.`;
     
-    const prompt = `Analise este produto, convoque os seus Múltiplos Agentes, acesse a internet para investigar concorrentes diretos, deduza o público-alvo e gere todo o pacote de marketing. OBRIGATÓRIO: A novaDescricaoHtml DEVE usar tags HTML VÁLIDAS. SE o produto já tiver uma Marca Original cadastrada, OBRIGATORIAMENTE use a mesma marca.
+    let prompt = `Analise este produto, convoque os seus Múltiplos Agentes, acesse a internet para investigar concorrentes diretos, deduza o público-alvo e gere todo o pacote de marketing. OBRIGATÓRIO: A novaDescricaoHtml DEVE usar tags HTML VÁLIDAS. SE o produto já tiver uma Marca Original cadastrada, OBRIGATORIAMENTE use a mesma marca.`;
+    
+    if (briefing) {
+       prompt += `\n\n[AÇÃO MANDATÓRIA - ORDEM DO GERENTE DE PROJETOS]:\nVocê DEVE obedecer ao seguinte BRIEFING EXECUTIVO na construção do SEO (Título, Copy, Meta):\n"${briefing}"\nQuebre as objeções apontadas e adote o ângulo de venda sugerido.`;
+    }
+    
+    prompt += `\n\n
 
 Produto original a ser pesquisado:
 Nome: ${productData.name}

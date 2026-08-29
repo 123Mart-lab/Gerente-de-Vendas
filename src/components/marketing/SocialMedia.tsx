@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { Share2, Sparkles, Video, MessageCircle, Send, FileText, ChevronDown, Activity, CheckCircle2 } from 'lucide-react';
+import { Share2, Sparkles, Video, MessageCircle, Send, FileText, ChevronDown, Activity, CheckCircle2, Search } from 'lucide-react';
 
 export default function SocialMedia() {
   const [searchTerm, setSearchTerm] = useState('');

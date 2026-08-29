@@ -304,7 +304,7 @@ app.post('/api/marketing/audit-logs', (req, res) => {
 app.post('/api/marketing/viral-content', async (req, res) => {
   try {
     const { productData } = req.body;
-    const result = await aiService.generateViralContent(productData);
+    const result = await aiService.generateViralContent(productData, 'TikTok e Instagram Reels');
     res.json(result);
   } catch (err: any) {
     console.error('Erro na geração de conteúdo viral:', err);
@@ -498,6 +498,71 @@ app.post('/api/marketing/orchestrate-optimization', async (req, res) => {
       }
     };
 
+    const saveProductCallback = async (seoJson: any) => {
+        let creds: any = null;
+        if (process.env.NUVEMSHOP_ACCESS_TOKEN && process.env.NUVEMSHOP_STORE_ID) {
+          creds = { accessToken: process.env.NUVEMSHOP_ACCESS_TOKEN.replace(/[^a-zA-Z0-9]/g, ''), storeId: process.env.NUVEMSHOP_STORE_ID.replace(/[^0-9]/g, '') };
+        } else {
+          try { creds = await firebaseService.getNuvemshopCredentials(); } catch (err) {}
+        }
+        
+        if (!creds || String(payload.id).indexOf('mock-') !== -1) return;
+        
+        const updatePayload: any = {};
+        if (seoJson.novoTitulo) updatePayload.name = { pt: seoJson.novoTitulo };
+        if (seoJson.novaDescricaoHtml) updatePayload.description = { pt: seoJson.novaDescricaoHtml };
+        if (seoJson.novaMetaDescription) updatePayload.seo_description = { pt: seoJson.novaMetaDescription };
+        
+        if (seoJson.novoTituloSeo !== undefined) {
+          let seoTitle = seoJson.novoTituloSeo;
+          if (seoTitle.length > 70) seoTitle = seoTitle.substring(0, 70);
+          updatePayload.seo_title = { pt: seoTitle };
+        }
+        
+        if (seoJson.novasTags) {
+          if (Array.isArray(seoJson.novasTags)) {
+            updatePayload.tags = seoJson.novasTags.join(', ');
+          } else if (typeof seoJson.novasTags === 'string') {
+            updatePayload.tags = seoJson.novasTags;
+          }
+        }
+        
+        try {
+          const axios = require('axios');
+          await axios.put(`https://api.nuvemshop.com.br/v1/${creds.storeId}/products/${payload.id}`, updatePayload, {
+            headers: {
+              'Authentication': `bearer ${creds.accessToken}`,
+              'User-Agent': '123Mart AI (marcus.solidez@gmail.com)'
+            }
+          });
+          
+          // Add to SEO history
+          const history = await firebaseService.getSeoHistory();
+          history.unshift({
+            id: payload.id.toString(),
+            name: seoJson.novoTitulo,
+            date: dateStr,
+            oldScore: 50,
+            newScore: 98,
+            before: {
+               titulo: payload.name,
+               descricao: payload.description,
+               meta: (payload as any).seo_description,
+               seoTitle: (payload as any).seo_title
+            },
+            after: {
+               titulo: seoJson.novoTitulo,
+               descricao: seoJson.novaDescricaoHtml,
+               meta: seoJson.novaMetaDescription,
+               seoTitle: seoJson.novoTituloSeo
+            }
+          });
+          await firebaseService.saveSeoHistory(history);
+        } catch (err: any) {
+          console.error("Failed to save product in orchestration:", err.response?.data || err.message);
+        }
+    };
+
     const result = await aiService.runOrchestrationPipeline(payload, (step, prompt, response) => {
       const meta = getRoleMetadata(step);
       globalAuditTasks.push({
@@ -514,11 +579,11 @@ app.post('/api/marketing/orchestrate-optimization', async (req, res) => {
         newScore: meta.newS,
         evolutionPercentage: meta.ev
       });
-    });
+    }, saveProductCallback);
     
 
     
-    res.json({ success: true, result: result.results });
+    res.json({ success: true, result: [] });
     
   } catch (err: any) {
     console.error('Erro na orquestração:', err); 

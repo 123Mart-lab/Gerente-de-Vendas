@@ -234,7 +234,7 @@ Formato obrigatório de retorno (JSON puro):
           tags: "erro, cota, api, limite",
           marca: "Google Cloud",
           urlProduto: "limite-de-requisicoes",
-          novaDescricaoHtml: "<p><strong>Limite de requisições excedido.</strong></p><p>O sistema está utilizando corretamente o modelo <strong>Gemini 3.1 Pro</strong>, mas a chave de acesso do ambiente compartilhado atingiu o limite de consultas por minuto (Status 429).</p><p>Para continuar testando, aguarde cerca de 1 minuto e tente novamente. Para utilizar o sistema em produção sem interrupções, você precisa inserir sua própria chave de API nas configurações do sistema (ou no arquivo <code>.env</code> se estiver rodando localmente).</p>",
+          novaDescricaoHtml: "<p><strong>Limite de requisições excedido.</strong></p><p>O sistema está utilizando corretamente a API, mas a chave configurada atingiu o limite de requisições (Status 429).</p><p>Para continuar testando, verifique se a sua chave de API inserida nas configurações (Secrets) possui saldo e cota disponível. Lembre-se que as alterações na chave do VS Code não se aplicam automaticamente ao painel do AI Studio.</p>",
           scoreTituloOriginal: 0,
           scoreTituloNovo: 0,
           scoreDescricaoOriginal: 0,

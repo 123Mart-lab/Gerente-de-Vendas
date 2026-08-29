@@ -46,6 +46,14 @@ export default function ProductOptimizer() {
   const [autoPilot, setAutoPilot] = useState(false);
   const [autoPilotLogs, setAutoPilotLogs] = useState<{id: number, text: string, type: 'info' | 'success' | 'warning'}[]>([]);
   const autoPilotActive = useRef(false);
+  const processedProductIds = useRef<Set<string | number>>(new Set());
+  
+  const [autoPilotInterval, setAutoPilotInterval] = useState<number>(0.5);
+  const autoPilotIntervalRef = useRef<number>(0.5);
+  
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
+  const autoSaveEnabledRef = useRef(true);
+  const manualResumeRef = useRef<(() => void) | null>(null);
 
   const toggleAutoPilot = async () => {
     const newState = !autoPilot;
@@ -91,6 +99,11 @@ export default function ProductOptimizer() {
         break;
       }
 
+      if (processedProductIds.current.has(product.id)) {
+        continue;
+      }
+      processedProductIds.current.add(product.id);
+
       const productName = product.name?.pt || product.name || 'Produto Desconhecido';
       setSelectedProductId(product.id);
       setSearchTerm(productName);
@@ -107,8 +120,17 @@ export default function ProductOptimizer() {
           query: productName 
         });
 
+        const finalData = response.data;
+        if (!finalData || !finalData.otimizado) {
+          throw new Error("A IA retornou um pacote vazio para este produto");
+        }
+        
+        setOriginalProduct(finalData.original);
+        setSeoResult(finalData.otimizado);
+        setOptimized(true);
+        setIsOptimizing(false);
+
         if (!autoPilotActive.current) {
-          setIsOptimizing(false);
           break;
         }
 
@@ -122,45 +144,57 @@ export default function ProductOptimizer() {
           description: true
         });
 
-        const finalData = response.data;
-        if (!finalData || !finalData.otimizado) {
-          throw new Error("A IA retornou um pacote vazio para este produto");
+        if (autoSaveEnabledRef.current) {
+          const currentInterval = autoPilotIntervalRef.current;
+          addLog('success', `[AGENTES 2 e 3] Otimização gerada. Aguardando revisão visual por ${currentInterval} min...`);
+          
+          for (let i = 0; i < currentInterval * 60; i++) {
+            if (!autoPilotActive.current || !autoSaveEnabledRef.current) break;
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+          
+          if (!autoPilotActive.current) break;
+
+          if (autoSaveEnabledRef.current) {
+            addLog('warning', `[AGENTE 4] Salvando alterações na Nuvemshop...`);
+            setIsSaving(true);
+            
+            const payloadToSave: any = {};
+            if (finalData.otimizado?.novoTitulo) payloadToSave.novoTitulo = finalData.otimizado.novoTitulo;
+            if (finalData.otimizado?.novoTitulo) payloadToSave.novoTituloSeo = finalData.otimizado.novoTitulo;
+            if (finalData.otimizado?.metaDescription) payloadToSave.metaDescription = finalData.otimizado.metaDescription;
+            if (finalData.otimizado?.marca) payloadToSave.marca = finalData.otimizado.marca;
+            if (finalData.otimizado?.tags) payloadToSave.tags = finalData.otimizado.tags;
+            
+            if (finalData.otimizado?.novaDescricaoHtml) {
+              payloadToSave.novaDescricaoHtml = finalData.otimizado.novaDescricaoHtml;
+            }
+            
+            await axios.post('/api/marketing/save', {
+              productId: product.id,
+              data: payloadToSave
+            });
+            
+            setIsSaving(false);
+            addLog('success', `Produto salvo com sucesso! Passando para o próximo...`);
+            
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            continue;
+          }
         }
         
-        setOriginalProduct(finalData.original);
-        setSeoResult(finalData.otimizado);
-        setOptimized(true);
-        setIsOptimizing(false);
-
-        addLog('success', `[AGENTES 2 e 3] Otimização gerada. Aguardando revisão visual por 5s...`);
-        
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        
-        if (!autoPilotActive.current) break;
-
-        addLog('warning', `[AGENTE 4] Salvando alterações na Nuvemshop...`);
-        setIsSaving(true);
-        
-        const payloadToSave: any = {};
-        if (finalData.otimizado?.novoTitulo) payloadToSave.novoTitulo = finalData.otimizado.novoTitulo;
-        if (finalData.otimizado?.novoTitulo) payloadToSave.novoTituloSeo = finalData.otimizado.novoTitulo;
-        if (finalData.otimizado?.metaDescription) payloadToSave.metaDescription = finalData.otimizado.metaDescription;
-        if (finalData.otimizado?.marca) payloadToSave.marca = finalData.otimizado.marca;
-        if (finalData.otimizado?.tags) payloadToSave.tags = finalData.otimizado.tags;
-        
-        if (finalData.otimizado?.novaDescricaoHtml) {
-          payloadToSave.novaDescricaoHtml = finalData.otimizado.novaDescricaoHtml;
+        if (!autoSaveEnabledRef.current) {
+          addLog('success', `[AGENTES 2 e 3] Otimização gerada. Aguardando você clicar em Salvar manual...`);
+          await new Promise<void>(resolve => {
+            manualResumeRef.current = resolve;
+          });
+          manualResumeRef.current = null;
+          
+          if (!autoPilotActive.current) break;
+          
+          addLog('info', `Passando para o próximo produto da fila...`);
+          await new Promise(resolve => setTimeout(resolve, 2000));
         }
-        
-        await axios.post('/api/marketing/save', {
-          productId: product.id,
-          data: payloadToSave
-        });
-        
-        setIsSaving(false);
-        addLog('success', `Produto salvo com sucesso! Passando para o próximo...`);
-        
-        await new Promise(resolve => setTimeout(resolve, 2000));
       } catch (error) {
         setIsOptimizing(false);
         setIsSaving(false);
@@ -288,6 +322,9 @@ export default function ProductOptimizer() {
       alert('Falha ao salvar produto na Nuvemshop.');
     } finally {
       setIsSaving(false);
+      if (manualResumeRef.current) {
+        manualResumeRef.current();
+      }
     }
   };
 
@@ -295,8 +332,8 @@ export default function ProductOptimizer() {
     return { __html: html || '' };
   };
 
-  let avgOriginal = 0;
-  let avgNovo = 0;
+  let avgOriginal: number | undefined = undefined;
+  let avgNovo: number | undefined = undefined;
   if (seoResult) {
     const origScores = [
       seoResult.scoreTituloOriginal,
@@ -334,20 +371,55 @@ export default function ProductOptimizer() {
           <p className="text-slate-500 mt-1">Análise semântica, geração de copy e injeção de SEO para a Nuvemshop.</p>
         </div>
         
-        {/* Toggle Piloto Automático */}
-        <div className={`flex items-center gap-3 border px-4 py-2 rounded-lg transition-colors ${autoPilot ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-slate-200 opacity-80'}`}>
-          <div className="flex flex-col text-right">
-            <span className={`text-sm font-semibold ${autoPilot ? 'text-indigo-700' : 'text-slate-700'}`}>Piloto Automático</span>
-            <span className={`text-xs font-medium ${autoPilot ? 'text-indigo-500' : 'text-slate-400'}`}>
-              {autoPilot ? 'Ativado (Processamento em Lote)' : 'Desativado'}
-            </span>
+        <div className="flex flex-col items-end gap-2">
+          {/* Toggle Piloto Automático */}
+          <div className={`flex items-center gap-3 border px-4 py-2 rounded-lg transition-colors ${autoPilot ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-slate-200 opacity-80'}`}>
+            <div className="flex flex-col text-right">
+              <span className={`text-sm font-semibold ${autoPilot ? 'text-indigo-700' : 'text-slate-700'}`}>Piloto Automático</span>
+              <span className={`text-xs font-medium ${autoPilot ? 'text-indigo-500' : 'text-slate-400'}`}>
+                {autoPilot ? 'Ativado (Processamento em Lote)' : 'Desativado'}
+              </span>
+            </div>
+            <button 
+              onClick={toggleAutoPilot}
+              className={`w-10 h-6 rounded-full transition-colors flex items-center px-1 ${autoPilot ? 'bg-indigo-600 justify-end' : 'bg-slate-200 justify-start'}`}
+            >
+              <div className="w-4 h-4 bg-white rounded-full shadow-sm"></div>
+            </button>
           </div>
-          <button 
-            onClick={toggleAutoPilot}
-            className={`w-10 h-6 rounded-full transition-colors flex items-center px-1 ${autoPilot ? 'bg-indigo-600 justify-end' : 'bg-slate-200 justify-start'}`}
-          >
-            <div className="w-4 h-4 bg-white rounded-full shadow-sm"></div>
-          </button>
+          {autoPilot && (
+            <div className={`flex items-center gap-2 border px-3 py-1.5 rounded-md shadow-sm animate-in fade-in slide-in-from-top-2 transition-colors ${autoSaveEnabled ? 'bg-indigo-50 border-indigo-100' : 'bg-slate-50 border-slate-200'}`}>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input 
+                  type="checkbox" 
+                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
+                  checked={autoSaveEnabled}
+                  onChange={(e) => {
+                    setAutoSaveEnabled(e.target.checked);
+                    autoSaveEnabledRef.current = e.target.checked;
+                    if (e.target.checked && manualResumeRef.current) {
+                      manualResumeRef.current();
+                    }
+                  }}
+                />
+                <span className={`text-xs font-medium ${autoSaveEnabled ? 'text-indigo-700' : 'text-slate-600'}`}>Gravar automático em</span>
+              </label>
+              <input
+                type="number"
+                min="0.1"
+                step="0.1"
+                disabled={!autoSaveEnabled}
+                className="w-16 text-center text-sm border border-slate-200 rounded focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 outline-none p-1 bg-white text-slate-800 font-semibold disabled:bg-slate-100 disabled:text-slate-400"
+                value={autoPilotInterval}
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value);
+                  setAutoPilotInterval(val);
+                  autoPilotIntervalRef.current = isNaN(val) ? 0.5 : val;
+                }}
+              />
+              <span className={`text-xs font-medium ${autoSaveEnabled ? 'text-indigo-700' : 'text-slate-500'}`}>min</span>
+            </div>
+          )}
         </div>
       </div>
 

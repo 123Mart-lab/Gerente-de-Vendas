@@ -370,6 +370,36 @@ function PesquisaMercado() {
           )}
         </div>
 
+
+        <div className="max-w-2xl mb-8 bg-slate-50 p-4 border border-slate-200 rounded-lg">
+          <h4 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+            <DollarSign className="w-4 h-4 text-emerald-600" />
+            Knowledge Base do Analista Financeiro
+          </h4>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs text-slate-500 font-medium mb-1">Taxa da Plataforma (%)</label>
+              <input type="text" value={kbPlatformFee} onChange={e => setKbPlatformFee(e.target.value)} className="w-full border border-slate-300 rounded p-1.5 text-sm" placeholder="Ex: 10% ou 12.5%" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 font-medium mb-1">Alíquota ICMS (%)</label>
+              <input type="text" value={kbIcms} onChange={e => setKbIcms(e.target.value)} className="w-full border border-slate-300 rounded p-1.5 text-sm" placeholder="Ex: 18%" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 font-medium mb-1">Impostos / Simples (%)</label>
+              <input type="text" value={kbTaxes} onChange={e => setKbTaxes(e.target.value)} className="w-full border border-slate-300 rounded p-1.5 text-sm" placeholder="Ex: 6%" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 font-medium mb-1">Logística Fixa (R$)</label>
+              <input type="text" value={kbLogistics} onChange={e => setKbLogistics(e.target.value)} className="w-full border border-slate-300 rounded p-1.5 text-sm" placeholder="Ex: R$ 5,00" />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs text-slate-500 font-medium mb-1">Margem de Lucro Líquida Desejada (%)</label>
+              <input type="text" value={kbMargin} onChange={e => setKbMargin(e.target.value)} className="w-full border border-slate-300 rounded p-1.5 text-sm" placeholder="Ex: 20%" />
+            </div>
+          </div>
+        </div>
+
         <div className="max-w-2xl mb-8">
           <label className="block text-sm font-medium text-slate-700 mb-2">Materiais de Apoio (Opcional)</label>
           

@@ -123,6 +123,74 @@ export const aiService = {
       return 'Nossos servidores estão passando por uma rápida atualização. Já te respondo!';
     }
   },
+    async runMarketResearchPipeline(links: string[], financialKnowledgeBase: any, onStepComplete?: (step: string, prompt: string, response: string) => void) {
+    const joinedLinks = links.join('\n');
+
+    // 1. Pesquisador (Planner)
+    const plannerPrompt = `Você é um Pesquisador de Mercado. Acesse, se possível, ou analise o padrão dos seguintes links de concorrentes para um produto:
+${joinedLinks}
+
+Por favor, faça um levantamento sobre:
+- Preços praticados (mínimo, máximo, médio).
+- Como eles estão agrupando ou vendendo este produto.
+- Informações sobre frete e condições de pagamento oferecidas.`;
+
+    const plannerResult = await ai.models.generateContent({
+      model: 'gemini-3.7-flash',
+      contents: plannerPrompt,
+      config: { temperature: 0.5 }
+    });
+    const plannerResponse = plannerResult.text;
+    if (onStepComplete) onStepComplete('planner', plannerPrompt, plannerResponse || '');
+
+    // 2. Monitor de Concorrência
+    const monitorPrompt = `Você é o Monitor de Concorrência. Leia a pesquisa de mercado abaixo:
+[PESQUISA DE MERCADO]
+${plannerResponse}
+[FIM DA PESQUISA]
+
+Defina uma estratégia de benchmark:
+- Qual deve ser nosso preço alvo para sermos competitivos?
+- Quais diferenciais devemos oferecer (ex: frete expresso, brindes) para superar essa concorrência?`;
+
+    const monitorResult = await ai.models.generateContent({
+      model: 'gemini-3.7-flash',
+      contents: monitorPrompt,
+      config: { temperature: 0.5 }
+    });
+    const monitorResponse = monitorResult.text;
+    if (onStepComplete) onStepComplete('monitor', monitorPrompt, monitorResponse || '');
+
+    // 3. Analista Financeiro
+    const financePrompt = `Você é um Analista Financeiro Sênior de E-commerce. Analise a estratégia proposta pelo Monitor de Concorrência:
+
+[ESTRATÉGIA DO MONITOR]
+${monitorResponse}
+[FIM DA ESTRATÉGIA]
+
+Para validar essa estratégia e chegar ao preço mínimo de venda viável (Break-even e Margem de Lucro Desejada), utilize as seguintes variáveis do nosso Knowledge Base de Operação:
+- Taxa da Plataforma de Venda: ${financialKnowledgeBase?.platformFee || '10%'}
+- Alíquota Média de ICMS: ${financialKnowledgeBase?.icms || '18%'}
+- Outros Impostos / Simples Nacional: ${financialKnowledgeBase?.taxes || '6%'}
+- Custo de Embalagem/Logística Fixa: ${financialKnowledgeBase?.logisticsCost || 'R$ 5,00'}
+- Margem de Lucro Desejada (Líquida): ${financialKnowledgeBase?.desiredMargin || '20%'}
+
+Faça os cálculos de viabilidade (markup/markdown) com base nessas premissas financeiras reais. Diga se a estratégia de preço proposta pelo Monitor de Concorrência é viável financeiramente, ou sugira qual deve ser o preço exato para atingir a margem desejada.`;
+
+    const financeResult = await ai.models.generateContent({
+      model: 'gemini-3.7-flash',
+      contents: financePrompt,
+      config: { temperature: 0.2 }
+    });
+    const financeResponse = financeResult.text;
+    if (onStepComplete) onStepComplete('finance', financePrompt, financeResponse || '');
+
+    return {
+      planner: plannerResponse,
+      monitor: monitorResponse,
+      finance: financeResponse
+    };
+  },
   async runOrchestrationPipeline(productData: any, onStepComplete?: (step: string, prompt: string, response: string) => void) {
     // 1. Pesquisador (Planner)
     const plannerPrompt = `Você é um Planner e Pesquisador de Mercado focado em e-commerce. Analise o seguinte produto:
@@ -164,12 +232,32 @@ Com base nisso, crie um relatório de Oportunidades (Benchmark).
     const monitorResponse = monitorResult.text;
     if (onStepComplete) onStepComplete('monitor', monitorPrompt, monitorResponse);
 
-    // 3. Especialista SEO
-    const seoPrompt = `Você é um Especialista SEO Sênior. Leia o benchmark e a pesquisa sobre o produto "${productData.name}":
+    // 3. Gerente de Projetos (Synthesizer)
+    const managerPrompt = `Você é um Gerente de Projetos de E-commerce experiente. Sua tarefa é evitar sobrecarga de informação e sintetizar os dados de pesquisa em um briefing executivo claro e conciso para o Especialista SEO.
+    
+Aqui estão os relatórios originais do produto "${productData.name}":
+[PESQUISA DE MERCADO]
+${plannerResponse}
 
-[BENCHMARK]
+[BENCHMARK DO MONITOR]
 ${monitorResponse}
-[FIM DO BENCHMARK]
+
+Crie um "Briefing Executivo" direto ao ponto. Remova detalhes excessivos e foque apenas no que importa para a conversão (diferenciais, objeções a quebrar e oportunidade de posicionamento).`;
+
+    const managerResult = await ai.models.generateContent({
+      model: 'gemini-3.7-flash',
+      contents: managerPrompt,
+      config: { temperature: 0.7 }
+    });
+    const managerResponse = managerResult.text;
+    if (onStepComplete) onStepComplete('manager', managerPrompt, managerResponse || '');
+
+    // 4. Especialista SEO
+    const seoPrompt = `Você é um Especialista SEO Sênior. Leia o briefing executivo sobre o produto "${productData.name}":
+
+[BRIEFING EXECUTIVO]
+${managerResponse}
+[FIM DO BRIEFING]
 
 Seu objetivo é criar a otimização textual para a Nuvemshop. Retorne:
 1. Novo Título SEO Otimizado (que gere cliques).
@@ -208,12 +296,14 @@ Sua função é criar as diretrizes visuais para o anúncio do produto "${produc
       results: {
         planner: plannerResponse,
         monitor: monitorResponse,
+        manager: managerResponse,
         seo: seoResponse,
         art: artResponse
       },
       prompts: {
         planner: plannerPrompt,
         monitor: monitorPrompt,
+        manager: managerPrompt,
         seo: seoPrompt,
         art: artPrompt
       }

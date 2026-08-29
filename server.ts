@@ -299,6 +299,51 @@ app.post('/api/marketing/audit-logs', (req, res) => {
   }
 });
 
+
+app.post('/api/marketing/market-research', async (req, res) => {
+  try {
+    const { links, financialKnowledgeBase } = req.body;
+    
+    const getRoleMetadata = (step: string) => {
+      switch (step) {
+        case 'planner':
+          return { req: 'Gerente de Projetos', exe: 'Pesquisador de Mercado', oldS: 0, newS: 40, ev: 40 };
+        case 'monitor':
+          return { req: 'Pesquisador de Mercado', exe: 'Monitor de Concorrência', oldS: 40, newS: 70, ev: 30 };
+        case 'finance':
+          return { req: 'Monitor de Concorrência', exe: 'Analista Financeiro', oldS: 70, newS: 90, ev: 20 };
+        default:
+          return { req: 'Gerente de Projetos', exe: 'Profissional', oldS: 50, newS: 70, ev: 40 };
+      }
+    };
+    
+    const dateStr = new Date().toLocaleString('pt-BR');
+    
+    const result = await aiService.runMarketResearchPipeline(links, financialKnowledgeBase, (step, prompt, response) => {
+      const meta = getRoleMetadata(step);
+      globalAuditTasks.push({
+        id: `task-${step}-${Date.now()}`,
+        date: dateStr,
+        productName: 'Pesquisa de Viabilidade (Múltiplos Links)',
+        receivedPrompt: prompt,
+        sentResponse: response,
+        status: 'completed',
+        role: step,
+        requestingSector: meta.req,
+        executingSector: meta.exe,
+        oldScore: meta.oldS,
+        newScore: meta.newS,
+        evolutionPercentage: meta.ev
+      });
+    });
+    
+    res.json({ success: true, result });
+  } catch (err: any) {
+    console.error('Erro na pesquisa de mercado:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/marketing/orchestrate-optimization', async (req, res) => {
   try {
     const { productId, query } = req.body;
@@ -395,10 +440,12 @@ app.post('/api/marketing/orchestrate-optimization', async (req, res) => {
           return { req: 'Gerente de Projetos', exe: 'Pesquisador de Mercado', oldS: 35, newS: 60, ev: 71 };
         case 'monitor':
           return { req: 'Pesquisador de Mercado', exe: 'Monitor de Concorrência', oldS: 60, newS: 75, ev: 25 };
+        case 'manager':
+          return { req: 'Monitor de Concorrência', exe: 'Gerente de Projetos', oldS: 75, newS: 85, ev: 13 };
         case 'seo':
-          return { req: 'Monitor de Concorrência', exe: 'Especialista SEO', oldS: 75, newS: 90, ev: 20 };
+          return { req: 'Gerente de Projetos', exe: 'Especialista SEO', oldS: 85, newS: 95, ev: 11 };
         case 'art':
-          return { req: 'Especialista SEO', exe: 'Diretor de Arte', oldS: 90, newS: 98, ev: 8 };
+          return { req: 'Especialista SEO', exe: 'Diretor de Arte', oldS: 95, newS: 98, ev: 3 };
         default:
           return { req: 'Gerente de Projetos', exe: 'Profissional', oldS: 50, newS: 70, ev: 40 };
       }

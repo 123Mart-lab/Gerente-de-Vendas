@@ -138,5 +138,26 @@ export const firebaseService = {
       return doc.data();
     }
     return null;
+  },
+
+  /**
+   * Salva o histórico de produtos otimizados pelo SEO
+   */
+  async saveSeoHistory(products: any[]) {
+    const db = getDb();
+    await db.collection('config').doc('seoHistory').set({ products }, { merge: true });
+    console.log('[Firebase] Histórico de SEO atualizado.');
+  },
+
+  /**
+   * Recupera o histórico de produtos otimizados pelo SEO
+   */
+  async getSeoHistory() {
+    const db = getDb();
+    const doc = await db.collection('config').doc('seoHistory').get();
+    if (doc.exists) {
+      return doc.data()?.products || [];
+    }
+    return [];
   }
 };

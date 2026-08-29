@@ -95,8 +95,49 @@ export default function ProductOptimizer() {
     oldScore: number;
     newScore: number;
   }
-  const [alteredProducts, setAlteredProducts] = useState<AlteredProduct[]>([]);
   
+  const [alteredProducts, setAlteredProducts] = useState<AlteredProduct[]>([]);
+  const isInitialMount = useRef(true);
+
+  // Load history from backend
+  useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        const response = await axios.get('/api/marketing/seo-history');
+        if (response.data && Array.isArray(response.data)) {
+          setAlteredProducts(response.data);
+        }
+      } catch (error) {
+        console.error('Erro ao carregar histórico de SEO', error);
+      }
+    };
+    fetchHistory();
+  }, []);
+
+  // Save history to backend when it changes
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+    
+    const saveHistory = async () => {
+      try {
+        await axios.post('/api/marketing/seo-history', { products: alteredProducts });
+      } catch (error) {
+        console.error('Erro ao salvar histórico de SEO no servidor', error);
+      }
+    };
+    
+    // Using a timeout to debounce saves slightly if needed, but direct call is fine since it doesn't change wildly often except in autopilot
+    saveHistory();
+  }, [alteredProducts]);
+  
+  // Keep processedProductIds in sync with alteredProducts so autopilot skips them
+  useEffect(() => {
+    alteredProducts.forEach(p => processedProductIds.current.add(p.id));
+  }, [alteredProducts]);
+
   const [historySearch, setHistorySearch] = useState('');
   const [historySort, setHistorySort] = useState<'time_desc'|'time_asc'|'score_desc'|'score_asc'|'name_asc'|'name_desc'|'evo_desc'|'evo_asc'>('time_desc');
 

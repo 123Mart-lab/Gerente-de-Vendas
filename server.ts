@@ -185,6 +185,27 @@ app.post('/webhook/openwa', async (req, res) => {
 // ROTA DE MARKETING / SEO
 // ==========================================
 
+app.get('/api/marketing/seo-history', async (req, res) => {
+  try {
+    const history = await firebaseService.getSeoHistory();
+    res.json(history);
+  } catch (error) {
+    console.error('Erro ao buscar histórico de SEO:', error);
+    res.status(500).json({ error: 'Erro ao buscar histórico' });
+  }
+});
+
+app.post('/api/marketing/seo-history', async (req, res) => {
+  try {
+    const { products } = req.body;
+    await firebaseService.saveSeoHistory(products);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Erro ao salvar histórico de SEO:', error);
+    res.status(500).json({ error: 'Erro ao salvar histórico' });
+  }
+});
+
 app.get('/api/marketing/products', async (req, res) => {
   try {
     const query = req.query.q as string;

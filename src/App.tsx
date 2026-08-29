@@ -1,5 +1,11 @@
 import React, { useState } from 'react';
-import { LayoutDashboard, Users, Zap, Settings, Play, Smartphone, ListFilter, Sparkles, Tags, Megaphone, Store, Mail, Share2, Target, Image as ImageIcon, Video, Menu, X } from 'lucide-react';
+import { 
+  LayoutDashboard, Users, Zap, Settings, Play, Smartphone, ListFilter, 
+  Sparkles, Tags, Megaphone, Store, Mail, Share2, Target, 
+  Image as ImageIcon, Video, Menu, X, Briefcase, Search, Radar, 
+  Palette, PenTool, ShoppingBag, BarChart3
+} from 'lucide-react';
+
 import DashboardOverview from './components/DashboardOverview';
 import SalesRoom from './components/SalesRoom';
 import CampaignManager from './components/CampaignManager';
@@ -7,18 +13,24 @@ import SettingsPanel from './components/SettingsPanel';
 import DeviceManager from './components/DeviceManager';
 import ListManager from './components/ListManager';
 import MarketingDashboard from './components/marketing/MarketingDashboard';
-import ProductOptimizer from './components/marketing/ProductOptimizer';
-import CategorySEO from './components/marketing/CategorySEO';
+import SeoSpecialist from './components/marketing/SeoSpecialist';
 import EmailMarketing from './components/marketing/EmailMarketing';
 import SocialMedia from './components/marketing/SocialMedia';
 import AdsManager from './components/marketing/AdsManager';
-import PhotoProduction from './components/marketing/PhotoProduction';
-import VideoProduction from './components/marketing/VideoProduction';
+
+import ProjectManager from './components/publicidade/ProjectManager';
+import MarketResearcher from './components/publicidade/MarketResearcher';
+import CompetitiveIntelligence from './components/publicidade/CompetitiveIntelligence';
+import ArtDirector from './components/publicidade/ArtDirector';
+import ContentCopywriter from './components/publicidade/ContentCopywriter';
+import MerchantCenterSpecialist from './components/publicidade/MerchantCenterSpecialist';
+import MetricsAnalyst from './components/publicidade/MetricsAnalyst';
+
 import { SettingsProvider } from './contexts/SettingsContext';
 
 type SectorType = 'comercial' | 'marketing';
-type ComercialTabType = 'dashboard' | 'sales' | 'campaigns' | 'devices' | 'lists' | 'settings';
-type MarketingTabType = 'mkt-dashboard' | 'products' | 'categories' | 'email-marketing' | 'social-media' | 'facebook-ads' | 'photos' | 'videos';
+type ComercialTabType = 'dashboard' | 'sales' | 'campaigns' | 'devices' | 'lists' | 'email-marketing' | 'settings';
+type MarketingTabType = 'mkt-dashboard' | 'project-manager' | 'market-researcher' | 'competitive-intelligence' | 'art-director' | 'content-copywriter' | 'social-media' | 'ads-manager' | 'seo-specialist' | 'merchant-center' | 'metrics-analyst';
 
 export default function App() {
   const [activeSector, setActiveSector] = useState<SectorType>('comercial');
@@ -40,18 +52,22 @@ export default function App() {
         case 'campaigns': return <CampaignManager />;
         case 'devices': return <DeviceManager />;
         case 'lists': return <ListManager />;
+        case 'email-marketing': return <EmailMarketing />;
         case 'settings': return <SettingsPanel />;
       }
     } else {
       switch (activeMarketingTab) {
         case 'mkt-dashboard': return <MarketingDashboard />;
-        case 'products': return <ProductOptimizer />;
-        case 'categories': return <CategorySEO />;
-        case 'email-marketing': return <EmailMarketing />;
+        case 'project-manager': return <ProjectManager />;
+        case 'market-researcher': return <MarketResearcher />;
+        case 'competitive-intelligence': return <CompetitiveIntelligence />;
+        case 'art-director': return <ArtDirector />;
+        case 'content-copywriter': return <ContentCopywriter />;
         case 'social-media': return <SocialMedia />;
-        case 'facebook-ads': return <AdsManager />;
-        case 'photos': return <PhotoProduction />;
-        case 'videos': return <VideoProduction />;
+        case 'ads-manager': return <AdsManager />;
+        case 'seo-specialist': return <SeoSpecialist />;
+        case 'merchant-center': return <MerchantCenterSpecialist />;
+        case 'metrics-analyst': return <MetricsAnalyst />;
       }
     }
   };
@@ -64,18 +80,22 @@ export default function App() {
         case 'campaigns': return 'Regras e Cadência de Disparo';
         case 'devices': return 'Aparelhos Conectados';
         case 'lists': return 'Extrator de Contatos e Listas';
+        case 'email-marketing': return 'Email Marketing & CRM';
         case 'settings': return 'Segurança e Cadência de Envio';
       }
     } else {
       switch (activeMarketingTab) {
         case 'mkt-dashboard': return 'Visão Geral do Marketing';
-        case 'products': return 'SEO de Produtos';
-        case 'categories': return 'SEO de Categorias';
-        case 'email-marketing': return 'Email Marketing & CRM';
+        case 'project-manager': return 'Gerente de Projetos';
+        case 'market-researcher': return 'Pesquisador de Mercado';
+        case 'competitive-intelligence': return 'Monitor de Inteligência Competitiva';
+        case 'art-director': return 'Diretor de Arte e Audiovisual';
+        case 'content-copywriter': return 'Redator de Conteúdo';
         case 'social-media': return 'Gestão de Redes Sociais';
-        case 'facebook-ads': return 'Tráfego Pago e Ads';
-        case 'photos': return 'Produção de Fotos (IA)';
-        case 'videos': return 'Produção de Vídeos (IA)';
+        case 'ads-manager': return 'Tráfego Pago e Ads';
+        case 'seo-specialist': return 'Especialista SEO';
+        case 'merchant-center': return 'Merchant Center & Search Console';
+        case 'metrics-analyst': return 'Analista de Métricas (BI)';
       }
     }
   };
@@ -109,7 +129,7 @@ export default function App() {
               active={activeSector === 'marketing'} 
               onClick={() => setActiveSector('marketing')}
               icon={<Megaphone className="w-4 h-4" />}
-              label="Catálogo & Marketing"
+              label="Publicidade"
             />
           </nav>
         </header>
@@ -137,6 +157,7 @@ export default function App() {
                   <NavItem icon={<Play className="w-5 h-5" />} label="Regras de Disparo" active={activeComercialTab === 'campaigns'} onClick={() => handleTabChange('comercial', 'campaigns')} />
                   <NavItem icon={<Smartphone className="w-5 h-5" />} label="Aparelhos" active={activeComercialTab === 'devices'} onClick={() => handleTabChange('comercial', 'devices')} />
                   <NavItem icon={<ListFilter className="w-5 h-5" />} label="Listas" active={activeComercialTab === 'lists'} onClick={() => handleTabChange('comercial', 'lists')} />
+                  <NavItem icon={<Mail className="w-5 h-5" />} label="Email Marketing" active={activeComercialTab === 'email-marketing'} onClick={() => handleTabChange('comercial', 'email-marketing')} />
                   <NavItem icon={<Settings className="w-5 h-5" />} label="Configurações" active={activeComercialTab === 'settings'} onClick={() => handleTabChange('comercial', 'settings')} />
                 </>
               )}
@@ -145,17 +166,26 @@ export default function App() {
                 <>
                   <div className="px-3 mb-2 text-xs font-semibold text-slate-400 uppercase tracking-wider mt-2 md:mt-0">Otimização & IA</div>
                   <NavItem icon={<LayoutDashboard className="w-5 h-5" />} label="Visão Geral" active={activeMarketingTab === 'mkt-dashboard'} onClick={() => handleTabChange('marketing', 'mkt-dashboard')} />
-                  <NavItem icon={<Sparkles className="w-5 h-5" />} label="SEO de Produtos" active={activeMarketingTab === 'products'} onClick={() => handleTabChange('marketing', 'products')} />
-                  <NavItem icon={<Tags className="w-5 h-5" />} label="SEO de Categorias" active={activeMarketingTab === 'categories'} onClick={() => handleTabChange('marketing', 'categories')} />
                   
-                  <div className="px-3 mt-6 mb-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Estúdio Criativo</div>
-                  <NavItem icon={<ImageIcon className="w-5 h-5" />} label="Produção de Fotos" active={activeMarketingTab === 'photos'} onClick={() => handleTabChange('marketing', 'photos')} />
-                  <NavItem icon={<Video className="w-5 h-5" />} label="Produção de Vídeos" active={activeMarketingTab === 'videos'} onClick={() => handleTabChange('marketing', 'videos')} />
-                  
-                  <div className="px-3 mt-6 mb-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Automação 360º</div>
-                  <NavItem icon={<Mail className="w-5 h-5" />} label="Email Marketing" active={activeMarketingTab === 'email-marketing'} onClick={() => handleTabChange('marketing', 'email-marketing')} />
-                  <NavItem icon={<Share2 className="w-5 h-5" />} label="Redes Sociais" active={activeMarketingTab === 'social-media'} onClick={() => handleTabChange('marketing', 'social-media')} />
-                  <NavItem icon={<Target className="w-5 h-5" />} label="Tráfego Pago (Ads)" active={activeMarketingTab === 'facebook-ads'} onClick={() => handleTabChange('marketing', 'facebook-ads')} />
+                  <div className="px-3 mt-6 mb-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Gerência</div>
+                  <NavItem icon={<Briefcase className="w-5 h-5" />} label="Gerente de Projetos" active={activeMarketingTab === 'project-manager'} onClick={() => handleTabChange('marketing', 'project-manager')} />
+
+                  <div className="px-3 mt-6 mb-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Planejamento e Inteligência</div>
+                  <NavItem icon={<Search className="w-5 h-5" />} label="Pesquisador de Mercado" active={activeMarketingTab === 'market-researcher'} onClick={() => handleTabChange('marketing', 'market-researcher')} />
+                  <NavItem icon={<Radar className="w-5 h-5" />} label="Monitor de Concorrência" active={activeMarketingTab === 'competitive-intelligence'} onClick={() => handleTabChange('marketing', 'competitive-intelligence')} />
+
+                  <div className="px-3 mt-6 mb-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Criação e Produção</div>
+                  <NavItem icon={<Palette className="w-5 h-5" />} label="Diretor de Arte e Áudio" active={activeMarketingTab === 'art-director'} onClick={() => handleTabChange('marketing', 'art-director')} />
+                  <NavItem icon={<PenTool className="w-5 h-5" />} label="Redator (Copywriter)" active={activeMarketingTab === 'content-copywriter'} onClick={() => handleTabChange('marketing', 'content-copywriter')} />
+                  <NavItem icon={<Share2 className="w-5 h-5" />} label="Gestor de Social Media" active={activeMarketingTab === 'social-media'} onClick={() => handleTabChange('marketing', 'social-media')} />
+
+                  <div className="px-3 mt-6 mb-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Mídia, SEO e Performance</div>
+                  <NavItem icon={<Target className="w-5 h-5" />} label="Especialista em Ads" active={activeMarketingTab === 'ads-manager'} onClick={() => handleTabChange('marketing', 'ads-manager')} />
+                  <NavItem icon={<Sparkles className="w-5 h-5" />} label="Especialista SEO" active={activeMarketingTab === 'seo-specialist'} onClick={() => handleTabChange('marketing', 'seo-specialist')} />
+                  <NavItem icon={<ShoppingBag className="w-5 h-5" />} label="Merchant Center" active={activeMarketingTab === 'merchant-center'} onClick={() => handleTabChange('marketing', 'merchant-center')} />
+
+                  <div className="px-3 mt-6 mb-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Análise de Dados</div>
+                  <NavItem icon={<BarChart3 className="w-5 h-5" />} label="Analista de Métricas (BI)" active={activeMarketingTab === 'metrics-analyst'} onClick={() => handleTabChange('marketing', 'metrics-analyst')} />
                 </>
               )}
             </nav>

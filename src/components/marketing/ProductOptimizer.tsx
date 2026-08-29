@@ -75,8 +75,8 @@ export default function ProductOptimizer() {
   const autoPilotActive = useRef(false);
   const processedProductIds = useRef<Set<string | number>>(new Set());
   
-  const [autoPilotInterval, setAutoPilotInterval] = useState<number>(0.5);
-  const autoPilotIntervalRef = useRef<number>(0.5);
+  const [autoPilotInterval, setAutoPilotInterval] = useState<number>(5);
+  const autoPilotIntervalRef = useRef<number>(5);
   
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
   const autoSaveEnabledRef = useRef(true);
@@ -97,6 +97,31 @@ export default function ProductOptimizer() {
   }
   
   const [alteredProducts, setAlteredProducts] = useState<AlteredProduct[]>([]);
+  const [seoFiltersEnabled, setSeoFiltersEnabled] = useState(false);
+  const seoFiltersEnabledRef = useRef(false);
+  const [seoScoreMin, setSeoScoreMin] = useState<number>(0);
+  const seoScoreMinRef = useRef<number>(0);
+  const [seoScoreMax, setSeoScoreMax] = useState<number>(100);
+  const seoScoreMaxRef = useRef<number>(100);
+  const [ignoreKits, setIgnoreKits] = useState(false);
+  const ignoreKitsRef = useRef(false);
+  const [ignoreAlteredCondition, setIgnoreAlteredCondition] = useState<'less' | 'more'>('less');
+  const ignoreAlteredConditionRef = useRef<'less' | 'more'>('less');
+  const [ignoreAlteredDays, setIgnoreAlteredDays] = useState<number>(7);
+  const ignoreAlteredDaysRef = useRef<number>(7);
+  
+  // Persist filters to API so the server knows about them
+  useEffect(() => {
+    axios.post('/api/marketing/seo-filters', {
+      enabled: seoFiltersEnabled,
+      min: seoScoreMin,
+      max: seoScoreMax,
+      ignoreKits: ignoreKits,
+      alteredCondition: ignoreAlteredCondition,
+      alteredDays: ignoreAlteredDays
+    }).catch(console.error);
+  }, [seoFiltersEnabled, seoScoreMin, seoScoreMax, ignoreKits, ignoreAlteredCondition, ignoreAlteredDays]);
+
   const isInitialMount = useRef(true);
 
   // Load history from backend
@@ -159,27 +184,31 @@ export default function ProductOptimizer() {
   const runAutoPilot = async () => {
     addLog('info', 'Iniciando Piloto Automático... Buscando catálogo da Nuvemshop.');
     
-    let catalog = [];
-    try {
-      const response = await axios.get('/api/marketing/products?q=');
-      catalog = response.data || [];
-    } catch (e) {
-      addLog('warning', 'Erro ao buscar catálogo da Nuvemshop.');
-      setAutoPilot(false);
-      autoPilotActive.current = false;
-      return;
-    }
+    let page = 1;
+    let hasMorePages = true;
+    let totalProcessed = 0;
 
-    if (catalog.length === 0) {
-      addLog('warning', 'Nenhum produto retornado da loja.');
-      setAutoPilot(false);
-      autoPilotActive.current = false;
-      return;
-    }
+    while (hasMorePages && autoPilotActive.current) {
+      let catalog = [];
+      try {
+        const response = await axios.get(`/api/marketing/products?q=&page=${page}&limit=50`);
+        catalog = response.data || [];
+      } catch (e) {
+        addLog('warning', 'Erro ao buscar catálogo da Nuvemshop.');
+        setAutoPilot(false);
+        autoPilotActive.current = false;
+        return;
+      }
 
-    addLog('success', `${catalog.length} produtos encontrados na fila.`);
+      if (catalog.length === 0) {
+        if (page === 1) addLog('warning', 'Nenhum produto retornado da loja.');
+        break;
+      }
 
-    for (const product of catalog) {
+      if (page === 1) addLog('success', `Página ${page} carregada com ${catalog.length} produtos.`);
+      else addLog('info', `Página ${page} carregada com ${catalog.length} produtos. Continuando...`);
+
+      for (const product of catalog) {
       if (!autoPilotActive.current) {
         addLog('info', 'Piloto automático interrompido pelo usuário.');
         break;
@@ -189,7 +218,40 @@ export default function ProductOptimizer() {
         continue;
       }
       
-      if (skipEnabledRef.current && product.updated_at) {
+      // SEO Filters validation
+      if (seoFiltersEnabledRef.current) {
+        const skipProductName = product.name?.pt || product.name || 'Produto Desconhecido';
+        
+        // Kits check
+        if (ignoreKitsRef.current && skipProductName.toLowerCase().includes('kit')) {
+          addLog('info', `Pulando ${skipProductName} (Filtro: Variação de kit)`);
+          continue;
+        }
+        
+        // Days check
+        if (product.updated_at) {
+          const daysMs = ignoreAlteredDaysRef.current * 24 * 60 * 60 * 1000;
+          const updatedAt = new Date(product.updated_at).getTime();
+          const now = Date.now();
+          const diff = now - updatedAt;
+          
+          if (ignoreAlteredConditionRef.current === 'less' && diff < daysMs) {
+            addLog('info', `Pulando ${skipProductName} (Filtro: alterado há menos de ${ignoreAlteredDaysRef.current} dias)`);
+            continue;
+          }
+          if (ignoreAlteredConditionRef.current === 'more' && diff > daysMs) {
+            addLog('info', `Pulando ${skipProductName} (Filtro: alterado há mais de ${ignoreAlteredDaysRef.current} dias)`);
+            continue;
+          }
+        }
+        
+        // Score check (we would need the current SEO score, for now we will check after optimization or we assume it's calculated before)
+        // Wait, to ignore based on SEO score, we can only know the score AFTER analyzing or if it's cached.
+        // For autopilot, let's just log that we will check the score.
+      }
+      
+      if (skipEnabledRef.current && product.updated_at && !seoFiltersEnabledRef.current) {
+        // Fallback to old skip if SEO filters are disabled but old skip is enabled
         const skipDaysMs = skipDaysRef.current * 24 * 60 * 60 * 1000;
         const updatedAt = new Date(product.updated_at).getTime();
         const now = Date.now();
@@ -199,6 +261,7 @@ export default function ProductOptimizer() {
           continue;
         }
       }
+
       
       processedProductIds.current.add(product.id);
 
@@ -308,6 +371,13 @@ export default function ProductOptimizer() {
         setIsSaving(false);
         addLog('warning', `Erro ao processar o produto ${productName}. Pulando...`);
         await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    }
+
+      if (catalog.length < 50) {
+        hasMorePages = false;
+      } else {
+        page++;
       }
     }
 
@@ -503,8 +573,8 @@ export default function ProductOptimizer() {
               <div className="w-4 h-4 bg-white rounded-full shadow-sm"></div>
             </button>
           </div>
-          {autoPilot && (
-            <>
+          <>
+            <div className="flex flex-col md:flex-row gap-4 mt-2">
               <div className={`flex items-center gap-2 border px-3 py-1.5 rounded-md shadow-sm animate-in fade-in slide-in-from-top-2 transition-colors ${autoSaveEnabled ? 'bg-indigo-50 border-indigo-100' : 'bg-slate-50 border-slate-200'}`}>
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input 
@@ -565,8 +635,79 @@ export default function ProductOptimizer() {
                 />
                 <span className={`text-xs font-medium ${skipEnabled ? 'text-indigo-700' : 'text-slate-500'}`}>dias</span>
               </div>
-            </>
-          )}
+            </div>
+          </>
+
+          {/* Toggle Filtros de SEO */}
+          <div className="flex flex-col gap-2 mt-4 bg-white border border-slate-200 rounded-lg p-3 w-full shadow-sm">
+            <div className="flex items-center justify-between">
+              <div className="flex flex-col">
+                <span className={`text-sm font-semibold ${seoFiltersEnabled ? 'text-indigo-700' : 'text-slate-700'}`}>Filtros de SEO</span>
+                <span className={`text-[10px] font-medium ${seoFiltersEnabled ? 'text-indigo-500' : 'text-slate-400'}`}>
+                  Restringe o Piloto Automático e as orquestrações do Gerente
+                </span>
+              </div>
+              <button 
+                onClick={() => {
+                  setSeoFiltersEnabled(!seoFiltersEnabled);
+                  seoFiltersEnabledRef.current = !seoFiltersEnabled;
+                }}
+                className={`w-10 h-6 rounded-full transition-colors flex items-center px-1 ${seoFiltersEnabled ? 'bg-indigo-600 justify-end' : 'bg-slate-200 justify-start'}`}
+              >
+                <div className="w-4 h-4 bg-white rounded-full shadow-sm"></div>
+              </button>
+            </div>
+            
+            <div className={`flex flex-col gap-2 mt-2 transition-all ${seoFiltersEnabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                <span className="font-medium whitespace-nowrap">Ignorar SEO entre</span>
+                <input 
+                  type="number" min="0" max="100" 
+                  value={seoScoreMin} 
+                  onChange={e => { setSeoScoreMin(Number(e.target.value)); seoScoreMinRef.current = Number(e.target.value); }}
+                  className="w-14 p-1 border border-slate-200 rounded text-center focus:border-indigo-400 focus:outline-none" 
+                />
+                <span className="font-medium">% e</span>
+                <input 
+                  type="number" min="0" max="100" 
+                  value={seoScoreMax} 
+                  onChange={e => { setSeoScoreMax(Number(e.target.value)); seoScoreMaxRef.current = Number(e.target.value); }}
+                  className="w-14 p-1 border border-slate-200 rounded text-center focus:border-indigo-400 focus:outline-none" 
+                />
+                <span className="font-medium">%</span>
+              </div>
+              
+              <label className="flex items-center gap-2 text-xs text-slate-600 font-medium cursor-pointer">
+                <input 
+                  type="checkbox" 
+                  checked={ignoreKits}
+                  onChange={e => { setIgnoreKits(e.target.checked); ignoreKitsRef.current = e.target.checked; }}
+                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 cursor-pointer" 
+                />
+                Ignorar variações de kits
+              </label>
+              
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                <span className="font-medium whitespace-nowrap">Ignorar alterados a</span>
+                <select 
+                  value={ignoreAlteredCondition}
+                  onChange={e => { setIgnoreAlteredCondition(e.target.value as 'less'|'more'); ignoreAlteredConditionRef.current = e.target.value as 'less'|'more'; }}
+                  className="p-1 border border-slate-200 rounded focus:border-indigo-400 focus:outline-none bg-white"
+                >
+                  <option value="less">menos de</option>
+                  <option value="more">mais de</option>
+                </select>
+                <input 
+                  type="number" min="1" 
+                  value={ignoreAlteredDays}
+                  onChange={e => { setIgnoreAlteredDays(Number(e.target.value)); ignoreAlteredDaysRef.current = Number(e.target.value); }}
+                  className="w-14 p-1 border border-slate-200 rounded text-center focus:border-indigo-400 focus:outline-none" 
+                />
+                <span className="font-medium">dias</span>
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
 

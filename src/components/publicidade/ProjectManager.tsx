@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
-import { Briefcase, Search, Sparkles, Plus, ArrowRight, CheckCircle2 } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import axios from 'axios';
+import { Briefcase, Search, Sparkles, Plus, ArrowRight, CheckCircle2, Upload, File, X, Image as ImageIcon } from 'lucide-react';
+import TaskAuditPanel, { AuditTask } from './TaskAuditPanel';
 
 export default function ProjectManager() {
   const [activeTab, setActiveTab] = useState<'otimizacao' | 'pesquisa'>('otimizacao');
@@ -19,15 +21,6 @@ export default function ProjectManager() {
             <li>Somente avança para o próximo profissional após receber o resultado do anterior.</li>
             <li>Recebe a ordem final (Otimização ou Pesquisa) e devolve um relatório completo consolidado.</li>
           </ul>
-          
-          <div className="mt-8 p-5 bg-slate-50 border border-slate-200 rounded-lg">
-            <h3 className="font-semibold text-slate-800 mb-2">Persona e Configuração da IA</h3>
-            <p className="text-sm text-slate-500 italic mb-4">Insira aqui a descrição detalhada da persona e instruções de sistema para este agente...</p>
-            <textarea 
-              className="w-full h-48 p-3 border border-slate-200 rounded-md text-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500 bg-white"
-              defaultValue="Você é um Gerente de Projetos Sênior atuando como Chefe do Setor de Publicidade. Você coordena uma equipe de IA (Pesquisador, Monitor, Especialista SEO, Diretor de Arte, Analista Financeiro). Você delega tarefas sequencialmente (esperando o retorno de um para enviar ao outro) e consolida todas as informações em relatórios para o CMO. Suas principais vertentes são: 1) Otimização de anúncios existentes, 2) Pesquisa de mercado para viabilidade de novos produtos."
-            />
-          </div>
         </div>
       </div>
 
@@ -66,25 +59,96 @@ export default function ProjectManager() {
 }
 
 function OtimizacaoAnuncios() {
-  const [selectedProduct, setSelectedProduct] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  const [products, setProducts] = useState<any[]>([]);
+  const [isSearchingProducts, setIsSearchingProducts] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState(0);
 
-  const startOptimization = () => {
-    if (!selectedProduct) return;
+  const [mockHistory, setMockHistory] = useState<AuditTask[]>([]);
+
+  useEffect(() => {
+    const fetchLogs = async () => {
+      try {
+        const res = await axios.get('/api/marketing/audit-logs');
+        if (res.data && Array.isArray(res.data)) {
+          setMockHistory(res.data.filter((task: any) => task.productName !== 'Pesquisa de Viabilidade (Múltiplos Links)'));
+        }
+      } catch (err) {
+        console.error('Erro ao buscar logs', err);
+      }
+    };
+    fetchLogs();
+    
+    // Auto refresh
+    const interval = setInterval(fetchLogs, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowDropdown(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Fetch products on mount and when typing
+  useEffect(() => {
+    const fetchProducts = async () => {
+      setIsSearchingProducts(true);
+      try {
+        const response = await axios.get('/api/marketing/products', {
+          params: { q: searchTerm }
+        });
+        setProducts(response.data);
+      } catch (err) {
+        console.error("Erro ao buscar produtos", err);
+      } finally {
+        setIsSearchingProducts(false);
+      }
+    };
+    
+    const timeoutId = setTimeout(() => {
+      fetchProducts();
+    }, 400); // Debounce
+    
+    return () => clearTimeout(timeoutId);
+  }, [searchTerm]);
+
+  const startOptimization = async () => {
+    if (!selectedProductId) return;
     setIsRunning(true);
     setProgress(0);
 
-    // Mock progress for the UI orchestration visualization
-    let currentProgress = 0;
-    const interval = setInterval(() => {
-      currentProgress += 1;
-      setProgress(currentProgress);
-      if (currentProgress >= 4) {
-        clearInterval(interval);
-        setIsRunning(false);
-      }
-    }, 2000);
+    // Mock progress visualizer that moves along while waiting
+    const progressInterval = setInterval(() => {
+      setProgress(p => {
+        if (p < 3) return p + 1;
+        return p;
+      });
+    }, 4000);
+
+    try {
+      await axios.post('/api/marketing/orchestrate-optimization', { 
+        productId: selectedProductId,
+        query: searchTerm
+      });
+      setProgress(4);
+    } catch (err) {
+      console.error('Erro na orquestração:', err);
+    } finally {
+      clearInterval(progressInterval);
+      setIsRunning(false);
+    }
   };
 
   return (
@@ -93,21 +157,52 @@ function OtimizacaoAnuncios() {
         <h3 className="text-lg font-bold text-slate-800 mb-4">Orquestração: Otimização de Anúncio Existente</h3>
         <p className="text-sm text-slate-600 mb-6">Selecione um produto da base para enviar para a esteira de otimização completa (Pesquisador &rarr; Monitor &rarr; Especialista SEO &rarr; Diretor de Arte).</p>
         
-        <div className="flex gap-4">
-          <select 
-            className="flex-1 bg-white border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-sky-500 focus:border-sky-500 block p-2.5"
-            value={selectedProduct}
-            onChange={(e) => setSelectedProduct(e.target.value)}
-          >
-            <option value="">Selecione um produto do catálogo...</option>
-            <option value="1">FACA DE AÇO INOXIDÁVEL C/ CABO PLÁSTICO 12"</option>
-            <option value="2">CONJUNTO DE PANELAS ANTIADERENTE 5 PEÇAS</option>
-            <option value="3">CHURRASQUEIRA ELÉTRICA PORTÁTIL 220V</option>
-          </select>
+        <div className="flex gap-4 items-start">
+          <div className="relative flex-1 w-full" ref={dropdownRef}>
+            <Search className="w-4 h-4 absolute left-3 top-3.5 text-slate-400" />
+            <input 
+              type="text" 
+              placeholder="Selecione ou busque um produto na Nuvemshop..." 
+              className="w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 bg-white shadow-sm cursor-text"
+              value={searchTerm} 
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setSelectedProductId(null);
+                setShowDropdown(true);
+              }}
+              onFocus={() => setShowDropdown(true)}
+            />
+            {showDropdown && (
+              <div className="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                {isSearchingProducts ? (
+                  <div className="p-3 text-sm text-slate-500 text-center">Buscando produtos...</div>
+                ) : products.length > 0 ? (
+                  <ul className="py-1">
+                    {products.map(p => (
+                      <li 
+                        key={p.id}
+                        className="px-4 py-2 hover:bg-slate-50 cursor-pointer text-sm border-b border-slate-100 last:border-0"
+                        onClick={() => {
+                          setSelectedProductId(p.id);
+                          setSearchTerm(p.name);
+                          setShowDropdown(false);
+                        }}
+                      >
+                        <div className="font-medium text-slate-800">{p.name}</div>
+                        <div className="text-xs text-slate-500 mt-1">ID: {p.id}</div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="p-3 text-sm text-slate-500 text-center">Nenhum produto encontrado.</div>
+                )}
+              </div>
+            )}
+          </div>
           <button 
             onClick={startOptimization}
-            disabled={!selectedProduct || isRunning}
-            className="px-6 py-2 bg-sky-600 text-white font-medium rounded-lg hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
+            disabled={!selectedProductId || isRunning}
+            className="px-6 py-2.5 bg-sky-600 text-white font-medium rounded-lg hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors whitespace-nowrap"
           >
             <Sparkles className="w-4 h-4" />
             {isRunning ? 'Orquestrando...' : 'Melhorar Anúncio'}
@@ -144,15 +239,39 @@ function OtimizacaoAnuncios() {
 
           </div>
         </div>
+
+        {/* Audit Panel (Global for Orchestration) */}
+        <TaskAuditPanel mockTasks={mockHistory} />
       </div>
     </div>
   );
 }
 
 function PesquisaMercado() {
+  const [pesquisaHistory, setPesquisaHistory] = useState<AuditTask[]>([]);
+
+  useEffect(() => {
+    const fetchLogs = async () => {
+      try {
+        const res = await axios.get('/api/marketing/audit-logs');
+        if (res.data && Array.isArray(res.data)) {
+          setPesquisaHistory(res.data.filter((task: any) => task.productName === 'Pesquisa de Viabilidade (Múltiplos Links)'));
+        }
+      } catch (err) {
+        console.error('Erro ao buscar logs de pesquisa', err);
+      }
+    };
+    fetchLogs();
+    
+    // Auto-refresh for demo
+    const interval = setInterval(fetchLogs, 5000);
+    return () => clearInterval(interval);
+  }, []);
   const [links, setLinks] = useState(['', '', '']);
+  const [files, setFiles] = useState<File[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const updateLink = (index: number, value: string) => {
     const newLinks = [...links];
@@ -164,16 +283,54 @@ function PesquisaMercado() {
     if (links.length < 5) setLinks([...links, '']);
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const newFiles = Array.from(e.target.files);
+      setFiles(prev => [...prev, ...newFiles]);
+    }
+  };
+
+  const removeFile = (index: number) => {
+    setFiles(files.filter((_, i) => i !== index));
+  };
+
   const startResearch = () => {
     const validLinks = links.filter(l => l.trim() !== '');
-    if (validLinks.length === 0) return;
+    if (validLinks.length === 0 && files.length === 0) return;
     
     setIsRunning(true);
     setProgress(0);
+    setPesquisaHistory([]);
 
-    // Mock progress
+    const steps = [
+      { role: 'planner', req: 'Gerente de Projetos', exe: 'Pesquisador de Mercado', oldS: 0, newS: 40, ev: 40, prompt: 'Analise os links fornecidos e encontre o padrão de preços.', resp: 'Encontrei um padrão onde o preço médio é R$ 120, com ofertas de R$ 99.' },
+      { role: 'monitor', req: 'Pesquisador de Mercado', exe: 'Monitor de Concorrência', oldS: 40, newS: 70, ev: 30, prompt: 'Faça um benchmark detalhado com base na pesquisa.', resp: 'Nossos concorrentes diretos estão focados em frete grátis. Sugiro destacarmos nosso envio expresso.' },
+      { role: 'finance', req: 'Monitor de Concorrência', exe: 'Analista Financeiro', oldS: 70, newS: 90, ev: 20, prompt: 'Avalie a viabilidade financeira desta estratégia de preço.', resp: 'A viabilidade é positiva. Temos margem para absorver o custo de envio expresso mantendo 35% de ROI.' }
+    ];
+
     let currentProgress = 0;
     const interval = setInterval(() => {
+      if (currentProgress < steps.length) {
+        const step = steps[currentProgress];
+        const newTask = {
+          id: `task-${step.role}-${Date.now()}`,
+          date: new Date().toLocaleString('pt-BR'),
+          productName: 'Pesquisa de Viabilidade (Múltiplos Links)',
+          receivedPrompt: step.prompt,
+          sentResponse: step.resp,
+          status: 'completed',
+          role: step.role,
+          requestingSector: step.req,
+          executingSector: step.exe,
+          oldScore: step.oldS,
+          newScore: step.newS,
+          evolutionPercentage: step.ev
+        } as AuditTask;
+        
+        setPesquisaHistory(prev => [...prev, newTask]);
+        axios.post('/api/marketing/audit-logs', { task: newTask }).catch(console.error);
+      }
+
       currentProgress += 1;
       setProgress(currentProgress);
       if (currentProgress >= 3) {
@@ -187,9 +344,10 @@ function PesquisaMercado() {
     <div className="space-y-6">
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
         <h3 className="text-lg font-bold text-slate-800 mb-4">Orquestração: Pesquisa de Viabilidade de Produto</h3>
-        <p className="text-sm text-slate-600 mb-6">Insira de 3 a 5 links de concorrentes. O Gerente enviará a solicitação aos especialistas (Pesquisador &rarr; Monitor &rarr; Analista Financeiro) para criar o relatório de viabilidade.</p>
+        <p className="text-sm text-slate-600 mb-6">Insira de 3 a 5 links de concorrentes e/ou anexe documentos (PDF, Imagens) do produto. O Gerente enviará a solicitação aos especialistas (Pesquisador &rarr; Monitor &rarr; Analista Financeiro) para criar o relatório de viabilidade.</p>
         
-        <div className="space-y-3 max-w-2xl">
+        <div className="space-y-3 max-w-2xl mb-8">
+          <label className="block text-sm font-medium text-slate-700 mb-2">Links da Concorrência</label>
           {links.map((link, index) => (
             <div key={index} className="flex items-center gap-3">
               <span className="text-slate-400 font-medium w-6">{index + 1}.</span>
@@ -212,10 +370,55 @@ function PesquisaMercado() {
           )}
         </div>
 
-        <div className="mt-6">
+        <div className="max-w-2xl mb-8">
+          <label className="block text-sm font-medium text-slate-700 mb-2">Materiais de Apoio (Opcional)</label>
+          
+          <div 
+            className="border-2 border-dashed border-slate-300 rounded-lg p-6 hover:bg-slate-50 transition-colors text-center cursor-pointer"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <Upload className="w-8 h-8 text-slate-400 mx-auto mb-3" />
+            <p className="text-sm text-slate-600 font-medium">Clique para selecionar arquivos</p>
+            <p className="text-xs text-slate-500 mt-1">PDFs de fornecedor, planilhas ou imagens de referência</p>
+            <input 
+              type="file" 
+              multiple 
+              accept=".pdf,image/*,.doc,.docx,.xls,.xlsx"
+              className="hidden" 
+              ref={fileInputRef}
+              onChange={handleFileChange}
+            />
+          </div>
+
+          {files.length > 0 && (
+            <div className="mt-4 space-y-2">
+              {files.map((file, index) => (
+                <div key={index} className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                  <div className="flex items-center gap-3 overflow-hidden">
+                    {file.type.includes('image') ? (
+                      <ImageIcon className="w-5 h-5 text-sky-500 shrink-0" />
+                    ) : (
+                      <File className="w-5 h-5 text-rose-500 shrink-0" />
+                    )}
+                    <span className="text-sm text-slate-700 font-medium truncate">{file.name}</span>
+                    <span className="text-xs text-slate-400 shrink-0">{(file.size / 1024 / 1024).toFixed(2)} MB</span>
+                  </div>
+                  <button 
+                    onClick={() => removeFile(index)}
+                    className="p-1 text-slate-400 hover:text-rose-500 transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="mt-6 border-t border-slate-100 pt-6">
           <button 
             onClick={startResearch}
-            disabled={links.filter(l => l.trim() !== '').length === 0 || isRunning}
+            disabled={(links.filter(l => l.trim() !== '').length === 0 && files.length === 0) || isRunning}
             className="px-6 py-2 bg-slate-900 text-white font-medium rounded-lg hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
           >
             <Search className="w-4 h-4" />
@@ -247,6 +450,9 @@ function PesquisaMercado() {
 
           </div>
         </div>
+
+        {/* Audit Panel (Pesquisa) */}
+        <TaskAuditPanel mockTasks={pesquisaHistory} />
       </div>
     </div>
   );

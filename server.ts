@@ -233,7 +233,10 @@ app.get('/api/marketing/products', async (req, res) => {
     const { storeId, accessToken } = creds;
     const API_URL = `https://api.nuvemshop.com.br/v1/${storeId}`;
     
-    const params: any = { per_page: 20 };
+    const params: any = { 
+      per_page: Number(req.query.limit) || 200,
+      page: Number(req.query.page) || 1
+    };
     if (query) {
       params.q = query;
     }
@@ -258,6 +261,174 @@ app.get('/api/marketing/products', async (req, res) => {
       { id: 'mock-124', name: 'FACA DE ACO INOXIDAVEL C/ CABO PLASTICO 12" LINHA TOP CHEF', updated_at: new Date(Date.now() - 86400000 * 2).toISOString() },
       { id: 'mock-125', name: 'CHURRASQUEIRA ELETRICA PORTATIL 220V', updated_at: new Date().toISOString() }
     ]);
+  }
+});
+
+
+let globalAuditTasks: any[] = [];
+
+let globalSeoFilters = {
+  enabled: false,
+  min: 0,
+  max: 100,
+  ignoreKits: false,
+  alteredCondition: 'less',
+  alteredDays: 7
+};
+
+app.post('/api/marketing/seo-filters', (req, res) => {
+  globalSeoFilters = req.body;
+  res.json({ success: true });
+});
+
+app.get('/api/marketing/seo-filters', (req, res) => {
+  res.json(globalSeoFilters);
+});
+
+
+app.get('/api/marketing/audit-logs', (req, res) => {
+  res.json(globalAuditTasks);
+});
+
+app.post('/api/marketing/audit-logs', (req, res) => {
+  if (req.body && req.body.task) {
+    globalAuditTasks.push(req.body.task);
+    res.json({ success: true });
+  } else {
+    res.status(400).json({ error: 'Task is required' });
+  }
+});
+
+app.post('/api/marketing/orchestrate-optimization', async (req, res) => {
+  try {
+    const { productId, query } = req.body;
+    
+    // SEO Filters check for direct orders
+    if (globalSeoFilters.enabled) {
+      const isKit = (query || '').toLowerCase().includes('kit');
+      
+      let blockedReason = null;
+      if (globalSeoFilters.ignoreKits && isKit) {
+        blockedReason = 'Variação de kit ignorada';
+      }
+      
+      if (blockedReason) {
+         const dateStr = new Date().toLocaleString('pt-BR');
+         const responseMsg = `Neste momento, os filtros aplicados me impedem de fazer alteração no anúncio (Motivo: ${blockedReason}).`;
+         
+         // Add the blocked response directly to the audit log as the SEO specialist
+         globalAuditTasks.push({
+           id: `task-seo-${Date.now()}`,
+           date: dateStr,
+           productName: query || productId || 'Produto',
+           receivedPrompt: 'Otimize este anúncio de acordo com as diretrizes.',
+           sentResponse: responseMsg,
+           status: 'completed',
+           role: 'seo',
+           requestingSector: 'Gerente de Projetos',
+           executingSector: 'Especialista SEO',
+           oldScore: 0,
+           newScore: 0,
+           evolutionPercentage: 0
+         });
+         
+         return res.json({ 
+           success: true, 
+           result: [{ step: 'seo', response: responseMsg }]
+         });
+      }
+    }
+
+    let creds = null;
+    if (process.env.NUVEMSHOP_ACCESS_TOKEN && process.env.NUVEMSHOP_STORE_ID) {
+      creds = { 
+        accessToken: process.env.NUVEMSHOP_ACCESS_TOKEN.replace(/[^a-zA-Z0-9]/g, ''), 
+        storeId: process.env.NUVEMSHOP_STORE_ID.replace(/[^0-9]/g, '') 
+      };
+    } else {
+      try {
+        creds = await firebaseService.getNuvemshopCredentials();
+      } catch (err: any) {}
+    }
+    
+    let produto;
+    if (!creds) {
+      produto = {
+        id: 'mock-123',
+        name: query || 'FACA DE ACO INOXIDAVEL C/ CABO PLASTICO 12" LINHA TOP CHEF',
+        variants: [{ price: '99.90' }],
+        description: { pt: 'Experimente a Faca de Aço Inoxidável.' }, brand: { pt: 'Home&More' }
+      };
+    } else {
+      const { default: axios } = await import('axios');
+      const { storeId, accessToken } = creds;
+      const API_URL = `https://api.nuvemshop.com.br/v1/${storeId}`;
+      
+      try {
+        if (productId) {
+          const response = await axios.get(`${API_URL}/products/${productId}`, {
+            headers: { 'Authentication': `bearer ${accessToken}`, 'User-Agent': '123Mart AI Assistant' }
+          });
+          produto = response.data;
+        }
+      } catch (err: any) {
+        produto = { id: productId || 'mock-123', name: query || 'Produto Exemplo', variants: [{ price: '19.90' }] };
+      }
+    }
+    
+    if (!produto) {
+      return res.status(404).json({ error: 'Produto não encontrado' });
+    }
+    
+    const payload = {
+      id: produto.id,
+      name: produto.name?.pt ?? (typeof produto.name === 'string' ? produto.name : ''),
+      price: produto.variants?.[0]?.price || 'N/A',
+      description: produto.description?.pt ?? (typeof produto.description === 'string' ? produto.description : '')
+    };
+    
+    const dateStr = new Date().toLocaleString('pt-BR');
+    
+    const getRoleMetadata = (step: string) => {
+      switch (step) {
+        case 'planner':
+          return { req: 'Gerente de Projetos', exe: 'Pesquisador de Mercado', oldS: 35, newS: 60, ev: 71 };
+        case 'monitor':
+          return { req: 'Pesquisador de Mercado', exe: 'Monitor de Concorrência', oldS: 60, newS: 75, ev: 25 };
+        case 'seo':
+          return { req: 'Monitor de Concorrência', exe: 'Especialista SEO', oldS: 75, newS: 90, ev: 20 };
+        case 'art':
+          return { req: 'Especialista SEO', exe: 'Diretor de Arte', oldS: 90, newS: 98, ev: 8 };
+        default:
+          return { req: 'Gerente de Projetos', exe: 'Profissional', oldS: 50, newS: 70, ev: 40 };
+      }
+    };
+
+    const result = await aiService.runOrchestrationPipeline(payload, (step, prompt, response) => {
+      const meta = getRoleMetadata(step);
+      globalAuditTasks.push({
+        id: `task-${step}-${Date.now()}`,
+        date: dateStr,
+        productName: payload.name,
+        receivedPrompt: prompt,
+        sentResponse: response,
+        status: 'completed',
+        role: step,
+        requestingSector: meta.req,
+        executingSector: meta.exe,
+        oldScore: meta.oldS,
+        newScore: meta.newS,
+        evolutionPercentage: meta.ev
+      });
+    });
+    
+
+    
+    res.json({ success: true, result: result.results });
+    
+  } catch (err: any) {
+    console.error('Erro na orquestração:', err); 
+    res.status(500).json({ error: 'Erro na orquestração' });
   }
 });
 

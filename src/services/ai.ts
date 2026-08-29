@@ -76,7 +76,7 @@ export const aiService = {
     try {
       // 4. Primeira chamada da API do Gemini injetando as Ferramentas (Tools)
       let response = await ai.models.generateContent({
-        model: 'gemini-3.6-flash',
+        model: 'gemini-3.7-flash',
         contents,
         config: {
           systemInstruction,
@@ -111,7 +111,7 @@ export const aiService = {
 
         // 6. Rechama o Gemini com o contexto atualizado para ele gerar a resposta final em texto
         response = await ai.models.generateContent({
-          model: 'gemini-3.6-flash',
+          model: 'gemini-3.7-flash',
           contents,
           config: { systemInstruction, tools: crmTools, temperature: 0.1 }
         });
@@ -123,6 +123,104 @@ export const aiService = {
       return 'Nossos servidores estão passando por uma rápida atualização. Já te respondo!';
     }
   },
+  async runOrchestrationPipeline(productData: any, onStepComplete?: (step: string, prompt: string, response: string) => void) {
+    // 1. Pesquisador (Planner)
+    const plannerPrompt = `Você é um Planner e Pesquisador de Mercado focado em e-commerce. Analise o seguinte produto:
+Nome: ${productData.name}
+Preço: ${productData.price}
+Descrição Original: ${productData.description || 'Sem descrição'}
+
+Por favor, forneça uma análise detalhada contendo:
+- Informações de uso e técnicas do produto
+- Principais argumentos de venda comerciais
+- O que os clientes geralmente reclamam ou elogiam neste tipo de produto (aceitações e reprovações).
+Seja direto e crie um relatório profissional.`;
+    
+    const plannerResult = await ai.models.generateContent({
+      model: 'gemini-3.7-flash',
+      contents: plannerPrompt,
+      config: { temperature: 0.7 }
+    });
+    const plannerResponse = plannerResult.text;
+    if (onStepComplete) onStepComplete('planner', plannerPrompt, plannerResponse);
+
+    // 2. Monitor de Inteligência Competitiva
+    const monitorPrompt = `Você é um Monitor de Inteligência Competitiva focado em benchmarking. Leia atentamente a pesquisa de mercado recém-criada sobre o produto "${productData.name}":
+
+[PESQUISA DE MERCADO]
+${plannerResponse}
+[FIM DA PESQUISA]
+
+Com base nisso, crie um relatório de Oportunidades (Benchmark).
+1. Estime a faixa de preços praticada pelos concorrentes.
+2. Analise a correlação entre preço e vendas (como a qualidade da apresentação influencia a venda de opções mais caras ou baratas).
+3. Defina a nossa oportunidade de posicionamento: devemos focar em sermos os mais baratos, premium, ou ter o melhor custo-benefício? Justifique.`;
+    
+    const monitorResult = await ai.models.generateContent({
+      model: 'gemini-3.7-flash',
+      contents: monitorPrompt,
+      config: { temperature: 0.7 }
+    });
+    const monitorResponse = monitorResult.text;
+    if (onStepComplete) onStepComplete('monitor', monitorPrompt, monitorResponse);
+
+    // 3. Especialista SEO
+    const seoPrompt = `Você é um Especialista SEO Sênior. Leia o benchmark e a pesquisa sobre o produto "${productData.name}":
+
+[BENCHMARK]
+${monitorResponse}
+[FIM DO BENCHMARK]
+
+Seu objetivo é criar a otimização textual para a Nuvemshop. Retorne:
+1. Novo Título SEO Otimizado (que gere cliques).
+2. Meta Descrição persuasiva (até 150 caracteres).
+3. Sugestão de tags para ranqueamento interno.
+4. Um parágrafo inicial forte de copy para ser usado na descrição do produto, focando em quebrar as objeções apontadas pelo pesquisador.`;
+    
+    const seoResult = await ai.models.generateContent({
+      model: 'gemini-3.7-flash',
+      contents: seoPrompt,
+      config: { temperature: 0.7 }
+    });
+    const seoResponse = seoResult.text;
+    if (onStepComplete) onStepComplete('seo', seoPrompt, seoResponse);
+
+    // 4. Diretor de Arte
+    const artPrompt = `Você é um Diretor de Arte Sênior especializado em e-commerce. A copy de SEO já foi criada:
+
+[COPY DE SEO]
+${seoResponse}
+[FIM DA COPY]
+
+Sua função é criar as diretrizes visuais para o anúncio do produto "${productData.name}".
+1. Descreva 3 banners ou imagens necessárias (ex: lifestyle, infográfico dos diferenciais, etc.).
+2. Explique como devem ser os elementos visuais (cores, textos de apoio nas imagens) para transmitir o posicionamento definido e maximizar a conversão.`;
+    
+    const artResult = await ai.models.generateContent({
+      model: 'gemini-3.7-flash',
+      contents: artPrompt,
+      config: { temperature: 0.7 }
+    });
+    const artResponse = artResult.text;
+    if (onStepComplete) onStepComplete('art', artPrompt, artResponse);
+
+    return {
+      results: {
+        planner: plannerResponse,
+        monitor: monitorResponse,
+        seo: seoResponse,
+        art: artResponse
+      },
+      prompts: {
+        planner: plannerPrompt,
+        monitor: monitorPrompt,
+        seo: seoPrompt,
+        art: artPrompt
+      }
+    };
+  }
+
+,
   async generateProductSEO(productData: any) {
     const systemInstruction = seoExpertPrompt + `\n\nRetorne ESTRITAMENTE em formato JSON puro.`;
     
@@ -167,7 +265,7 @@ Formato obrigatório de retorno (JSON puro):
     try {
       // Usando a versão Pro estável mais recente
       const response = await ai.models.generateContent({
-        model: 'gemini-3.6-flash',
+        model: 'gemini-3.7-flash',
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         config: {
           systemInstruction,

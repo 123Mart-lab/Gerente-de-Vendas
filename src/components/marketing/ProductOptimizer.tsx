@@ -2,6 +2,30 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { Search, Sparkles, RefreshCw, LayoutTemplate, Save, CheckCircle2, ToggleLeft, ToggleRight, CheckSquare2, Square } from 'lucide-react';
 
+const getScoreColor = (score: number) => {
+  if (score < 60) return 'bg-rose-100 text-rose-700 border-rose-200';
+  if (score <= 80) return 'bg-amber-100 text-amber-700 border-amber-200';
+  if (score <= 90) return 'bg-blue-100 text-blue-700 border-blue-200';
+  return 'bg-emerald-100 text-emerald-700 border-emerald-200';
+};
+
+const getScoreLabel = (score: number) => {
+  if (score < 60) return 'SEO Ruim';
+  if (score <= 80) return 'SEO Médio';
+  if (score <= 90) return 'SEO Bom';
+  return 'SEO Excelente';
+};
+
+const ScoreBadge = ({ score, showLabel = false }: { score?: number, showLabel?: boolean }) => {
+  if (score === undefined || score === null) return null;
+  const colors = getScoreColor(score);
+  return (
+    <div className={`inline-flex items-center px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${colors}`}>
+      {showLabel ? `${getScoreLabel(score)}: ${score}%` : `Nota de SEO: ${score}%`}
+    </div>
+  );
+};
+
 export default function ProductOptimizer() {
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -21,43 +45,136 @@ export default function ProductOptimizer() {
   const [showHtmlPreview, setShowHtmlPreview] = useState(true);
   const [autoPilot, setAutoPilot] = useState(false);
   const [autoPilotLogs, setAutoPilotLogs] = useState<{id: number, text: string, type: 'info' | 'success' | 'warning'}[]>([]);
-  
-  // Simulate autopilot process
-  useEffect(() => {
-    let interval: any;
-    if (autoPilot) {
-      const logs = [
-        "Iniciando Automação 360º de Catálogo...",
-        "[AGENTE 1] Escaneando Nuvemshop por produtos sem descrição rica...",
-        "[AGENTE 1] Produto identificado: 'Base para Amaciante Tuff'.",
-        "[AGENTE 1] Vasculhando Google e Mercado Livre por concorrentes diretos...",
-        "[AGENTE 1] Extraindo dores de clientes nas FAQs de concorrentes...",
-        "[AGENTE 2] Reescrevendo descrição técnica (Foco: 20% Persuasão, 80% Lógica)...",
-        "[AGENTE 3] Gerando calendários e legendas para Instagram e TikTok...",
-        "[AGENTE 4] Criando anúncios para Meta Ads (Foco em conversão)...",
-        "Otimização finalizada com sucesso. Salvando via API...",
-        "Aguardando próximo produto na fila..."
-      ];
-      let i = 0;
-      setAutoPilotLogs([{ id: Date.now(), text: "Conectando aos 4 Agentes de IA...", type: 'info' }]);
-      interval = setInterval(() => {
-        if (i < logs.length) {
-          setAutoPilotLogs(prev => [...prev, { 
-            id: Date.now(), 
-            text: logs[i], 
-            type: logs[i].includes('sucesso') ? 'success' : (logs[i].includes('Escaneando') ? 'warning' : 'info')
-          }]);
-          i++;
-        } else {
-          i = 0; // Restart simulation loop
-          setAutoPilotLogs([{ id: Date.now(), text: "Reiniciando varredura na Nuvemshop...", type: 'warning' }]);
-        }
-      }, 3500);
-    } else {
-      setAutoPilotLogs([]);
+  const autoPilotActive = useRef(false);
+
+  const toggleAutoPilot = async () => {
+    const newState = !autoPilot;
+    setAutoPilot(newState);
+    autoPilotActive.current = newState;
+    
+    if (newState) {
+      alert('Piloto Automático Ativado! As regras de segurança (URL e Título SEO inalterados) serão rigorosamente aplicadas em otimizações em massa.');
+      runAutoPilot();
     }
-    return () => clearInterval(interval);
-  }, [autoPilot]);
+  };
+
+  const addLog = (type: 'info' | 'success' | 'warning', text: string) => {
+    setAutoPilotLogs(prev => [...prev.slice(-3), { id: Date.now() + Math.random(), type, text }]);
+  };
+
+  const runAutoPilot = async () => {
+    addLog('info', 'Iniciando Piloto Automático... Buscando catálogo da Nuvemshop.');
+    
+    let catalog = [];
+    try {
+      const response = await axios.get('/api/marketing/products?q=');
+      catalog = response.data || [];
+    } catch (e) {
+      addLog('warning', 'Erro ao buscar catálogo da Nuvemshop.');
+      setAutoPilot(false);
+      autoPilotActive.current = false;
+      return;
+    }
+
+    if (catalog.length === 0) {
+      addLog('warning', 'Nenhum produto retornado da loja.');
+      setAutoPilot(false);
+      autoPilotActive.current = false;
+      return;
+    }
+
+    addLog('success', `${catalog.length} produtos encontrados na fila.`);
+
+    for (const product of catalog) {
+      if (!autoPilotActive.current) {
+        addLog('info', 'Piloto automático interrompido pelo usuário.');
+        break;
+      }
+
+      const productName = product.name?.pt || product.name || 'Produto Desconhecido';
+      setSelectedProductId(product.id);
+      setSearchTerm(productName);
+      setOriginalProduct(product);
+      setSeoResult(null);
+      setOptimized(false);
+      
+      addLog('warning', `[AGENTE 1] Analisando SEO do produto: ${productName}`);
+      setIsOptimizing(true);
+      
+      try {
+        const response = await axios.post('/api/marketing/optimize', { 
+          productId: product.id,
+          query: productName 
+        });
+
+        if (!autoPilotActive.current) {
+          setIsOptimizing(false);
+          break;
+        }
+
+        setSelectedFields({
+          title: true,
+          metaDescription: true,
+          brand: true,
+          tags: true,
+          url: false,
+          seoTitle: true,
+          description: true
+        });
+
+        const finalData = response.data;
+        if (!finalData || !finalData.otimizado) {
+          throw new Error("A IA retornou um pacote vazio para este produto");
+        }
+        
+        setOriginalProduct(finalData.original);
+        setSeoResult(finalData.otimizado);
+        setOptimized(true);
+        setIsOptimizing(false);
+
+        addLog('success', `[AGENTES 2 e 3] Otimização gerada. Aguardando revisão visual por 5s...`);
+        
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        
+        if (!autoPilotActive.current) break;
+
+        addLog('warning', `[AGENTE 4] Salvando alterações na Nuvemshop...`);
+        setIsSaving(true);
+        
+        const payloadToSave: any = {};
+        if (finalData.otimizado?.novoTitulo) payloadToSave.novoTitulo = finalData.otimizado.novoTitulo;
+        if (finalData.otimizado?.novoTitulo) payloadToSave.novoTituloSeo = finalData.otimizado.novoTitulo;
+        if (finalData.otimizado?.metaDescription) payloadToSave.metaDescription = finalData.otimizado.metaDescription;
+        if (finalData.otimizado?.marca) payloadToSave.marca = finalData.otimizado.marca;
+        if (finalData.otimizado?.tags) payloadToSave.tags = finalData.otimizado.tags;
+        
+        if (finalData.otimizado?.novaDescricaoHtml) {
+          payloadToSave.novaDescricaoHtml = finalData.otimizado.novaDescricaoHtml;
+        }
+        
+        await axios.post('/api/marketing/save', {
+          productId: product.id,
+          data: payloadToSave
+        });
+        
+        setIsSaving(false);
+        addLog('success', `Produto salvo com sucesso! Passando para o próximo...`);
+        
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      } catch (error) {
+        setIsOptimizing(false);
+        setIsSaving(false);
+        addLog('warning', `Erro ao processar o produto ${productName}. Pulando...`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    }
+
+    if (autoPilotActive.current) {
+      addLog('success', 'Varredura de todo o catálogo concluída!');
+      setAutoPilot(false);
+      autoPilotActive.current = false;
+    }
+  };
   const [selectedFields, setSelectedFields] = useState({
     title: true,
     metaDescription: true,
@@ -114,6 +231,11 @@ export default function ProductOptimizer() {
         productId: selectedProductId,
         query: searchTerm 
       });
+      
+      if (!response.data || !response.data.otimizado) {
+        throw new Error("A IA retornou um pacote vazio para este produto");
+      }
+      
       setOriginalProduct(response.data.original);
       setSeoResult(response.data.otimizado);
       setOptimized(true);
@@ -173,6 +295,34 @@ export default function ProductOptimizer() {
     return { __html: html || '' };
   };
 
+  let avgOriginal = 0;
+  let avgNovo = 0;
+  if (seoResult) {
+    const origScores = [
+      seoResult.scoreTituloOriginal,
+      seoResult.scoreMetaOriginal,
+      seoResult.scoreTagsOriginal,
+      seoResult.scoreUrlOriginal,
+      seoResult.scoreMarcaOriginal,
+      seoResult.scoreDescricaoOriginal
+    ].filter(s => s !== undefined && s !== null);
+    if (origScores.length) {
+      avgOriginal = Math.round(origScores.reduce((a, b) => a + b, 0) / origScores.length);
+    }
+
+    const newScores = [
+      seoResult.scoreTituloNovo,
+      seoResult.scoreMetaNova,
+      seoResult.scoreTagsNova,
+      seoResult.scoreUrlNova,
+      seoResult.scoreMarcaNova,
+      seoResult.scoreDescricaoNova
+    ].filter(s => s !== undefined && s !== null);
+    if (newScores.length) {
+      avgNovo = Math.round(newScores.reduce((a, b) => a + b, 0) / newScores.length);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:justify-between items-start gap-4">
@@ -193,12 +343,7 @@ export default function ProductOptimizer() {
             </span>
           </div>
           <button 
-            onClick={() => {
-              setAutoPilot(!autoPilot);
-              if (!autoPilot) {
-                alert('Piloto Automático Ativado! As regras de segurança (URL e Título SEO inalterados) serão rigorosamente aplicadas em otimizações em massa.');
-              }
-            }}
+            onClick={toggleAutoPilot}
             className={`w-10 h-6 rounded-full transition-colors flex items-center px-1 ${autoPilot ? 'bg-indigo-600 justify-end' : 'bg-slate-200 justify-start'}`}
           >
             <div className="w-4 h-4 bg-white rounded-full shadow-sm"></div>
@@ -305,7 +450,7 @@ export default function ProductOptimizer() {
               <div className="p-4 border-r border-slate-200">
                 <h3 className="font-semibold text-slate-800 flex items-center justify-between">
                   <span>Produto Atual</span>
-                  <span className="bg-rose-100 text-rose-700 text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded-md">SEO Ruim</span>
+                  <ScoreBadge score={avgOriginal} showLabel={true} />
                 </h3>
               </div>
               <div className="p-4 bg-emerald-50">
@@ -313,82 +458,110 @@ export default function ProductOptimizer() {
                   <span className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4" /> Resultado da Otimização</span>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-emerald-700">Selecione o que deseja salvar:</span>
-                    <span className="bg-emerald-200 text-emerald-800 text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded-md">SEO Excelente</span>
+                    <ScoreBadge score={avgNovo} showLabel={true} />
                   </div>
                 </h3>
               </div>
             </div>
 
-            {/* Linha: Título e Meta */}
+            {/* Linha: Título */}
             <div className="grid grid-cols-1 md:grid-cols-2 border-b border-slate-200">
-              <div className="p-5 border-r border-slate-200 bg-white">
-                <label className="text-xs font-semibold text-slate-400 uppercase block mb-2 tracking-wider">Título Original</label>
-                <p className="text-sm text-slate-800 mb-2">
-                  {typeof originalProduct?.name === 'string' ? originalProduct?.name : (originalProduct?.name?.pt || <span className="text-slate-400 italic">Vazio</span>)}
-                </p>
-                {seoResult?.scoreTituloOriginal !== undefined && (
-                  <div className="inline-flex items-center mt-2 px-2 py-1 rounded bg-slate-100 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
-                    Nota de SEO: {seoResult.scoreTituloOriginal}%
+              {/* Lado Esquerdo - Original */}
+              <div className="p-5 border-r border-slate-200 bg-slate-50/50 flex flex-col">
+                <div className="p-3 rounded-lg border border-slate-200 bg-white shadow-sm flex-1 flex flex-col">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Título Original
+                    </label>
+                    <ScoreBadge score={seoResult?.scoreTituloOriginal} />
                   </div>
-                )}
+                  <p className="text-sm text-slate-800 font-medium">
+                    {typeof originalProduct?.name === 'string' ? originalProduct?.name : (originalProduct?.name?.pt || <span className="text-slate-400 italic">Vazio</span>)}
+                  </p>
+                </div>
               </div>
-              <div className="p-5 bg-emerald-50/30 flex flex-col gap-4">
+              
+              {/* Lado Direito - Otimizado */}
+              <div className="p-5 bg-emerald-50/30 flex flex-col">
                 {/* Checkbox Titulo */}
-                <div className={`p-3 rounded-lg border ${selectedFields.title ? 'border-emerald-200 bg-white' : 'border-slate-200 bg-slate-50 opacity-60'}`}>
+                <div className={`p-3 rounded-lg border shadow-sm flex-1 flex flex-col ${selectedFields.title ? 'border-emerald-200 bg-white' : 'border-slate-200 bg-slate-50 opacity-60'}`}>
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-xs font-semibold text-emerald-600/70 uppercase tracking-wider cursor-pointer flex items-center gap-2" onClick={() => toggleField('title')}>
                       {selectedFields.title ? <CheckSquare2 className="w-4 h-4 text-emerald-600" /> : <Square className="w-4 h-4 text-slate-400" />}
                       Novo Título Otimizado
                     </label>
-                    {seoResult?.scoreTituloNovo !== undefined && (
-                      <div className="inline-flex items-center px-2 py-1 rounded bg-emerald-100 text-[10px] font-bold text-emerald-700 uppercase tracking-wider">
-                        Nota de SEO: {seoResult.scoreTituloNovo}%
-                      </div>
-                    )}
+                    <ScoreBadge score={seoResult?.scoreTituloNovo} />
                   </div>
                   <input
                     type="text"
                     disabled={!selectedFields.title}
                     value={seoResult?.novoTitulo || ''}
                     onChange={(e) => setSeoResult({...seoResult, novoTitulo: e.target.value})}
-                    className="w-full text-sm text-slate-900 font-medium p-2 bg-white border border-slate-200 rounded focus:outline-none focus:border-emerald-400 focus:ring-1 transition-colors disabled:bg-slate-100 disabled:text-slate-500"
-                  />
-                </div>
-                
-                {/* Checkbox Meta Description */}
-                <div className={`p-3 rounded-lg border ${selectedFields.metaDescription ? 'border-emerald-200 bg-white' : 'border-slate-200 bg-slate-50 opacity-60'}`}>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-xs font-semibold text-emerald-600/70 uppercase tracking-wider cursor-pointer flex items-center gap-2" onClick={() => toggleField('metaDescription')}>
-                      {selectedFields.metaDescription ? <CheckSquare2 className="w-4 h-4 text-emerald-600" /> : <Square className="w-4 h-4 text-slate-400" />}
-                      Meta Description (SEO)
-                    </label>
-                  </div>
-                  <textarea
-                    disabled={!selectedFields.metaDescription}
-                    value={seoResult?.metaDescription || ''}
-                    onChange={(e) => setSeoResult({...seoResult, metaDescription: e.target.value})}
-                    className="w-full text-sm text-slate-900 p-2 bg-white border border-slate-200 rounded focus:outline-none focus:border-emerald-400 focus:ring-1 transition-colors resize-y h-16 disabled:bg-slate-100 disabled:text-slate-500"
+                    className="w-full text-sm text-slate-900 font-medium p-2 bg-white border border-slate-200 rounded focus:outline-none focus:border-emerald-400 focus:ring-1 transition-colors disabled:bg-slate-100 disabled:text-slate-500 mt-auto"
                   />
                 </div>
               </div>
             </div>
 
-            
+            {/* Linha: Meta Description */}
+            <div className="grid grid-cols-1 md:grid-cols-2 border-b border-slate-200">
+              <div className="p-5 border-r border-slate-200 bg-slate-50/50 flex flex-col">
+                <div className="p-3 rounded-lg border border-slate-200 bg-white shadow-sm flex-1 flex flex-col">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Meta Description Original
+                    </label>
+                    <ScoreBadge score={seoResult?.scoreMetaOriginal} />
+                  </div>
+                  <p className="text-sm text-slate-800">
+                    {typeof originalProduct?.seo_description === 'string' ? originalProduct?.seo_description : (originalProduct?.seo_description?.pt || <span className="text-slate-400 italic">Vazia (A Nuvemshop usará parte da descrição principal)</span>)}
+                  </p>
+                </div>
+              </div>
+              
+              <div className="p-5 bg-emerald-50/30 flex flex-col">
+                {/* Checkbox Meta Description */}
+                <div className={`p-3 rounded-lg border shadow-sm flex-1 flex flex-col ${selectedFields.metaDescription ? 'border-emerald-200 bg-white' : 'border-slate-200 bg-slate-50 opacity-60'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-semibold text-emerald-600/70 uppercase tracking-wider cursor-pointer flex items-center gap-2" onClick={() => toggleField('metaDescription')}>
+                      {selectedFields.metaDescription ? <CheckSquare2 className="w-4 h-4 text-emerald-600" /> : <Square className="w-4 h-4 text-slate-400" />}
+                      Meta Description (SEO)
+                    </label>
+                    <ScoreBadge score={seoResult?.scoreMetaNova} />
+                  </div>
+                  <textarea
+                    disabled={!selectedFields.metaDescription}
+                    value={seoResult?.metaDescription || ''}
+                    onChange={(e) => setSeoResult({...seoResult, metaDescription: e.target.value})}
+                    className="w-full text-sm text-slate-900 p-2 bg-white border border-slate-200 rounded focus:outline-none focus:border-emerald-400 focus:ring-1 transition-colors resize-y h-16 disabled:bg-slate-100 disabled:text-slate-500 mt-auto"
+                  />
+                </div>
+              </div>
+            </div>
+
             {/* Linha: SEO Title */}
             <div className="grid grid-cols-1 md:grid-cols-2 border-b border-slate-200">
-              <div className="p-5 border-r border-slate-200 bg-white">
-                <label className="text-xs font-semibold text-slate-400 uppercase block mb-2 tracking-wider">Título SEO Original</label>
-                <p className="text-sm text-slate-800">
-                  {typeof originalProduct?.seo_title === 'string' ? originalProduct?.seo_title : (originalProduct?.seo_title?.pt || <span className="text-slate-400 italic">Vazio (Usa o Título Padrão)</span>)}
-                </p>
+              <div className="p-5 border-r border-slate-200 bg-slate-50/50 flex flex-col">
+                <div className="p-3 rounded-lg border border-slate-200 bg-white shadow-sm flex-1 flex flex-col">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Título SEO Original
+                    </label>
+                    <ScoreBadge score={seoResult?.scoreTituloOriginal} />
+                  </div>
+                  <p className="text-sm text-slate-800">
+                    {typeof originalProduct?.seo_title === 'string' ? originalProduct?.seo_title : (originalProduct?.seo_title?.pt || <span className="text-slate-400 italic">Vazio (Usa o Título Padrão)</span>)}
+                  </p>
+                </div>
               </div>
-              <div className="p-5 bg-emerald-50/30 flex flex-col gap-4">
-                <div className={`p-3 rounded-lg border ${selectedFields.seoTitle ? 'border-emerald-200 bg-white' : 'border-slate-200 bg-slate-50 opacity-60'}`}>
+              <div className="p-5 bg-emerald-50/30 flex flex-col">
+                <div className={`p-3 rounded-lg border shadow-sm flex-1 flex flex-col ${selectedFields.seoTitle ? 'border-emerald-200 bg-white' : 'border-slate-200 bg-slate-50 opacity-60'}`}>
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-xs font-semibold text-emerald-600/70 uppercase tracking-wider cursor-pointer flex items-center gap-2" onClick={() => toggleField('seoTitle')}>
                       {selectedFields.seoTitle ? <CheckSquare2 className="w-4 h-4 text-emerald-600" /> : <Square className="w-4 h-4 text-slate-400" />}
                       Título SEO (Otimizado)
                     </label>
+                    <ScoreBadge score={seoResult?.scoreTituloNovo} />
                   </div>
                   <div className="text-sm text-slate-500 italic mb-1">
                     Ao marcar esta opção, o novo título otimizado gerado pela IA (visto acima) também será aplicado como o Título SEO do produto na Nuvemshop.
@@ -397,54 +570,73 @@ export default function ProductOptimizer() {
               </div>
             </div>
 
-            {/* Linha: Marca e Tags */}
+            {/* Linha: Marca */}
             <div className="grid grid-cols-1 md:grid-cols-2 border-b border-slate-200">
-              <div className="p-5 border-r border-slate-200 bg-white flex flex-col gap-4">
-                <div>
-                  <label className="text-xs font-semibold text-slate-400 uppercase block mb-2 tracking-wider">Marca Atual</label>
+              <div className="p-5 border-r border-slate-200 bg-slate-50/50 flex flex-col">
+                <div className="p-3 rounded-lg border border-slate-200 bg-white shadow-sm flex-1 flex flex-col">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Marca Atual
+                    </label>
+                    <ScoreBadge score={seoResult?.scoreMarcaOriginal} />
+                  </div>
                   <p className="text-sm text-slate-800">
                     {originalProduct?.brand || <span className="text-slate-400 italic">Não cadastrada</span>}
                   </p>
                 </div>
-                <div>
-                  <label className="text-xs font-semibold text-slate-400 uppercase block mb-2 tracking-wider">Tags Atuais</label>
-                  <p className="text-sm text-slate-800">
-                    {originalProduct?.tags || <span className="text-slate-400 italic">Sem tags</span>}
-                  </p>
-                </div>
               </div>
-              <div className="p-5 bg-emerald-50/30 flex flex-col gap-4">
+              <div className="p-5 bg-emerald-50/30 flex flex-col">
                 {/* Checkbox Marca */}
-                <div className={`p-3 rounded-lg border ${selectedFields.brand ? 'border-emerald-200 bg-white' : 'border-slate-200 bg-slate-50 opacity-60'}`}>
+                <div className={`p-3 rounded-lg border shadow-sm flex-1 flex flex-col ${selectedFields.brand ? 'border-emerald-200 bg-white' : 'border-slate-200 bg-slate-50 opacity-60'}`}>
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-xs font-semibold text-emerald-600/70 uppercase tracking-wider cursor-pointer flex items-center gap-2" onClick={() => toggleField('brand')}>
                       {selectedFields.brand ? <CheckSquare2 className="w-4 h-4 text-emerald-600" /> : <Square className="w-4 h-4 text-slate-400" />}
                       Marca Sugerida (IA)
                     </label>
+                    <ScoreBadge score={seoResult?.scoreMarcaNova} />
                   </div>
                   <input
                     type="text"
                     disabled={!selectedFields.brand}
                     value={seoResult?.marca || ''}
                     onChange={(e) => setSeoResult({...seoResult, marca: e.target.value})}
-                    className="w-full text-sm text-slate-900 font-medium p-2 bg-white border border-slate-200 rounded focus:outline-none focus:border-emerald-400 focus:ring-1 transition-colors disabled:bg-slate-100 disabled:text-slate-500"
+                    className="w-full text-sm text-slate-900 font-medium p-2 bg-white border border-slate-200 rounded focus:outline-none focus:border-emerald-400 focus:ring-1 transition-colors disabled:bg-slate-100 disabled:text-slate-500 mt-auto"
                   />
                 </div>
-                
+              </div>
+            </div>
+
+            {/* Linha: Tags */}
+            <div className="grid grid-cols-1 md:grid-cols-2 border-b border-slate-200">
+              <div className="p-5 border-r border-slate-200 bg-slate-50/50 flex flex-col">
+                <div className="p-3 rounded-lg border border-slate-200 bg-white shadow-sm flex-1 flex flex-col">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Tags Atuais
+                    </label>
+                    <ScoreBadge score={seoResult?.scoreTagsOriginal} />
+                  </div>
+                  <p className="text-sm text-slate-800">
+                    {originalProduct?.tags || <span className="text-slate-400 italic">Sem tags</span>}
+                  </p>
+                </div>
+              </div>
+              <div className="p-5 bg-emerald-50/30 flex flex-col">
                 {/* Checkbox Tags */}
-                <div className={`p-3 rounded-lg border ${selectedFields.tags ? 'border-emerald-200 bg-white' : 'border-slate-200 bg-slate-50 opacity-60'}`}>
+                <div className={`p-3 rounded-lg border shadow-sm flex-1 flex flex-col ${selectedFields.tags ? 'border-emerald-200 bg-white' : 'border-slate-200 bg-slate-50 opacity-60'}`}>
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-xs font-semibold text-emerald-600/70 uppercase tracking-wider cursor-pointer flex items-center gap-2" onClick={() => toggleField('tags')}>
                       {selectedFields.tags ? <CheckSquare2 className="w-4 h-4 text-emerald-600" /> : <Square className="w-4 h-4 text-slate-400" />}
                       Novas Tags SEO (IA)
                     </label>
+                    <ScoreBadge score={seoResult?.scoreTagsNova} />
                   </div>
                   <input
                     type="text"
                     disabled={!selectedFields.tags}
                     value={seoResult?.tags || ''}
                     onChange={(e) => setSeoResult({...seoResult, tags: e.target.value})}
-                    className="w-full text-sm text-slate-900 font-medium p-2 bg-white border border-slate-200 rounded focus:outline-none focus:border-emerald-400 focus:ring-1 transition-colors disabled:bg-slate-100 disabled:text-slate-500"
+                    className="w-full text-sm text-slate-900 font-medium p-2 bg-white border border-slate-200 rounded focus:outline-none focus:border-emerald-400 focus:ring-1 transition-colors disabled:bg-slate-100 disabled:text-slate-500 mt-auto"
                   />
                 </div>
               </div>
@@ -452,21 +644,29 @@ export default function ProductOptimizer() {
 
             {/* Linha: URL Amigável */}
             <div className="grid grid-cols-1 md:grid-cols-2 border-b border-slate-200">
-              <div className="p-5 border-r border-slate-200 bg-white">
-                <label className="text-xs font-semibold text-slate-400 uppercase block mb-2 tracking-wider">URL Original</label>
-                <p className="text-sm text-slate-800 font-mono break-all">
-                  .../produtos/{typeof originalProduct?.handle === 'string' ? originalProduct?.handle : (originalProduct?.handle?.pt || 'vazio')}
-                </p>
+              <div className="p-5 border-r border-slate-200 bg-slate-50/50 flex flex-col">
+                <div className="p-3 rounded-lg border border-slate-200 bg-white shadow-sm flex-1 flex flex-col">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      URL Original
+                    </label>
+                    <ScoreBadge score={seoResult?.scoreUrlOriginal} />
+                  </div>
+                  <p className="text-sm text-slate-800 font-mono break-all">
+                    .../produtos/{typeof originalProduct?.handle === 'string' ? originalProduct?.handle : (originalProduct?.handle?.pt || 'vazio')}
+                  </p>
+                </div>
               </div>
-              <div className="p-5 bg-emerald-50/30 flex flex-col gap-4">
-                <div className={`p-3 rounded-lg border ${selectedFields.url ? 'border-emerald-200 bg-white' : 'border-slate-200 bg-slate-50 opacity-60'}`}>
+              <div className="p-5 bg-emerald-50/30 flex flex-col">
+                <div className={`p-3 rounded-lg border shadow-sm flex-1 flex flex-col ${selectedFields.url ? 'border-emerald-200 bg-white' : 'border-slate-200 bg-slate-50 opacity-60'}`}>
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-xs font-semibold text-emerald-600/70 uppercase tracking-wider cursor-pointer flex items-center gap-2" onClick={() => toggleField('url')}>
                       {selectedFields.url ? <CheckSquare2 className="w-4 h-4 text-emerald-600" /> : <Square className="w-4 h-4 text-slate-400" />}
                       Nova URL Amigável
                     </label>
+                    <ScoreBadge score={seoResult?.scoreUrlNova} />
                   </div>
-                  <div className="flex items-center opacity-100">
+                  <div className="flex items-center opacity-100 mt-auto">
                     <span className="text-sm text-slate-500 bg-slate-100 border border-slate-200 border-r-0 rounded-l p-2">.../produtos/</span>
                     <input
                       type="text"
@@ -487,42 +687,40 @@ export default function ProductOptimizer() {
 
             {/* Linha: Descrição */}
             <div className="grid grid-cols-1 md:grid-cols-2">
-              <div className="p-5 border-r border-slate-200 bg-white">
-                <label className="text-xs font-semibold text-slate-400 uppercase block mb-2 tracking-wider">Descrição Atual (Visualização HTML)</label>
-                <div 
-                  className="prose prose-sm text-slate-600 break-words max-w-none prose-p:my-2 prose-ul:my-2 prose-li:my-1"
-                  dangerouslySetInnerHTML={renderHTML(
-                    typeof originalProduct?.description === 'string' ? originalProduct?.description : originalProduct?.description?.pt
-                  )} 
-                />
-                {seoResult?.scoreDescricaoOriginal !== undefined && (
-                  <div className="pt-4 border-t border-slate-100 mt-4">
-                    <div className="inline-flex items-center px-2 py-1 rounded bg-slate-100 text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-3">
-                      Nota de SEO (Qualidade Técnica): {seoResult.scoreDescricaoOriginal}%
-                    </div>
-                    {seoResult.dicasMelhoria && seoResult.dicasMelhoria.length > 0 && (
+              <div className="p-5 border-r border-slate-200 bg-slate-50/50 flex flex-col gap-4">
+                <div className="p-3 rounded-lg border border-slate-200 bg-white shadow-sm h-full flex flex-col">
+                  <div className="flex items-center justify-between mb-4">
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Descrição Atual (Visualização HTML)
+                    </label>
+                    <ScoreBadge score={seoResult?.scoreDescricaoOriginal} />
+                  </div>
+                  <div 
+                    className="prose prose-sm text-slate-600 break-words max-w-none prose-p:my-2 prose-ul:my-2 prose-li:my-1"
+                    dangerouslySetInnerHTML={renderHTML(
+                      typeof originalProduct?.description === 'string' ? originalProduct?.description : originalProduct?.description?.pt
+                    )} 
+                  />
+                  {seoResult?.dicasMelhoria && seoResult.dicasMelhoria.length > 0 && (
+                    <div className="pt-4 border-t border-slate-100 mt-auto">
                       <div className="bg-amber-50 border border-amber-200 rounded p-3 text-xs text-amber-800">
-                        <p className="font-semibold mb-1">⚠️ Faltam dados técnicos no ERP:</p>
+                        <p className="font-semibold mb-1">⚠️ Auditoria Técnica (Por que o original perdeu pontos):</p>
                         <ul className="list-disc pl-4 space-y-1 opacity-90">
                           {seoResult.dicasMelhoria.map((dica: string, i: number) => <li key={i}>{dica}</li>)}
                         </ul>
                       </div>
-                    )}
-                  </div>
-                )}
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="p-5 bg-emerald-50/30 flex flex-col">
-                <div className={`p-3 rounded-lg border flex-1 flex flex-col ${selectedFields.description ? 'border-emerald-200 bg-white' : 'border-slate-200 bg-slate-50 opacity-60'}`}>
+                <div className={`p-3 rounded-lg border shadow-sm flex-1 flex flex-col ${selectedFields.description ? 'border-emerald-200 bg-white' : 'border-slate-200 bg-slate-50 opacity-60'}`}>
                   <div className="flex items-center justify-between mb-3">
                     <label className="text-xs font-semibold text-emerald-600/70 uppercase tracking-wider cursor-pointer flex items-center gap-2" onClick={() => toggleField('description')}>
                       {selectedFields.description ? <CheckSquare2 className="w-4 h-4 text-emerald-600" /> : <Square className="w-4 h-4 text-slate-400" />}
                       Nova Descrição de Vendas (Copywriting)
                     </label>
-                    {seoResult?.scoreDescricaoNova !== undefined && (
-                      <div className="inline-flex items-center px-2 py-1 rounded bg-emerald-100 text-[10px] font-bold text-emerald-700 uppercase tracking-wider">
-                        Nota de SEO: {seoResult.scoreDescricaoNova}%
-                      </div>
-                    )}
+                    <ScoreBadge score={seoResult?.scoreDescricaoNova} />
                   </div>
                   
                   {/* Container duplo para visual e codigo */}

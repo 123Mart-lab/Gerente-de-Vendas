@@ -1,8 +1,9 @@
-import { GoogleGenAI, Type, Tool } from '@google/genai';
+import { GoogleGenAI, Type, Tool, HarmCategory, HarmBlockThreshold } from '@google/genai';
 import fs from 'fs';
 import path from 'path';
 import { nuvemshopService } from './nuvemshop.js';
 import { firebaseService } from './firebase.js';
+import { seoExpertPrompt } from '../prompts/seoExpert.js';
 
 // Inicializa a engine do Gemini com a API Key injetada no ambiente
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -123,38 +124,7 @@ export const aiService = {
     }
   },
   async generateProductSEO(productData: any) {
-    const systemInstruction = `Você é um ecossistema de Múltiplos Agentes de Marketing de IA (inspirado no modelo "ai-marketing-claude"). Sua mente opera processando dados em paralelo através de 4 Especialistas Sêniores:
-1. [AGENTE 1: Especialista em SEO e Pesquisa] - Acessa a internet, mapeia concorrentes (Mercado Livre, Amazon, Shopee), descobre doores nas FAQs e valida fichas técnicas.
-2. [AGENTE 2: Copywriter E-commerce] - Transforma os dados técnicos em textos persuasivos, sem emojis, altamente técnicos, com foco na tríade: 20% Persuasão, 50% Informação, 30% Segurança.
-3. [AGENTE 3: Estrategista de Social Media] - Cria calendários de conteúdo curto, direto e voltado à conversão.
-4. [AGENTE 4: Especialista em Tráfego Pago (Ads) e Email Marketing] - Cria criativos focados em CTR (Click-Through Rate) e sequências de email de nutrição.
-
-A sua premissa principal é: "O cliente busca informações técnicas e manuais de uso para justificar a compra, além de precisarmos gerar tração em múltiplos canais".
-
-REGRA DE PESQUISA OBRIGATÓRIA (GROUNDING): 
-Antes de gerar o conteúdo final, o [AGENTE 1] DEVE acessar a internet (Google Search) para pesquisar pelo nome do produto e seus concorrentes. Extraia ativamente: 
-- Informações técnicas ocultas ou manuais que faltaram na descrição original.
-- Dores dos clientes nas FAQs dos concorrentes.
-- Argumentos de venda e padrões de mercado para este nicho.
-
-REGRA ABSOLUTA 1: NENHUM EMOJI PODE SER USADO NA DESCRIÇÃO DO PRODUTO. Marketplaces (como Mercado Livre) bloqueiam integrações via API que contêm emojis.
-REGRA ABSOLUTA 2: Apenas a novaDescricaoHtml deve usar HTML. Os outros campos de marketing (emails, ads, social) devem usar texto simples com espaçamentos claros.
-
-Siga RIGOROSAMENTE a estrutura da Descrição (feita pelo Agente 2):
-1. Gancho Inicial (Persuasão 20%): Frase objetiva com palavras-chave.
-2. Descrição Técnica e Durabilidade (Informação 50%): O que faz, materiais, durabilidade (Enriquecido pela Web).
-3. Instruções de Uso (Informação 50%): Passo a passo prático (Manuais reais da web).
-4. Especificações Técnicas (Segurança 30%): Ficha técnica, medidas, FISPQ.
-5. Garantia/Devolução e FAQ: Baseado nas dúvidas reais dos concorrentes.
-
-SUA SEGUNDA TAREFA (feita pelo Agente 1): AVALIAR SEO E DAR NOTAS COMPARATIVAS (0 a 100):
-- scoreTituloOriginal, scoreTituloNovo, scoreDescricaoOriginal, scoreDescricaoNova.
-- dicasMelhoria (Array de Strings): Dados TÉCNICOS que faltaram no original e devem ser providenciados pelo lojista.
-
-SUA TERCEIRA TAREFA (Agentes 3 e 4): GERAR MATERIAIS DE MARKETING
-Crie uma campanha completa para este produto contendo Emails, Posts para Redes Sociais e Copys para Facebook/Instagram Ads.
-
-Retorne ESTRITAMENTE em formato JSON puro.`;
+    const systemInstruction = seoExpertPrompt + `\n\nRetorne ESTRITAMENTE em formato JSON puro.`;
     
     const prompt = `Analise este produto, convoque os seus Múltiplos Agentes, acesse a internet para investigar concorrentes diretos, deduza o público-alvo e gere todo o pacote de marketing. OBRIGATÓRIO: A novaDescricaoHtml DEVE usar tags HTML VÁLIDAS. SE o produto já tiver uma Marca Original cadastrada, OBRIGATORIAMENTE use a mesma marca.
 
@@ -164,6 +134,8 @@ Preço: ${productData.price}
 Marca Original: ${productData.brand || 'Não cadastrada'}
 Tags Originais: ${productData.tags || 'Sem tags'}
 Descrição Original (geralmente pobre): ${productData.description || 'Sem descrição'}
+Meta Description Original: ${productData.seo_description || 'Vazia'}
+URL Original: ${productData.handle || 'Sem URL'}
 
 Formato obrigatório de retorno (JSON puro):
 {
@@ -174,11 +146,19 @@ Formato obrigatório de retorno (JSON puro):
   "marca": "Marca do Produto",
   "urlProduto": "nome-atrativo-separado-por-hifens",
   "novaDescricaoHtml": "GANCHO INICIAL AQUI (COM PALAVRAS-CHAVE SEO)\\n\\n<h3>DESCRIÇÃO TÉCNICA E DURABILIDADE</h3>\\n\\n- Benefício 1...\\n\\n<h3>INSTRUÇÕES DE USO</h3>\\n\\n1. Passo 1...\\n\\n<h3>ESPECIFICAÇÕES TÉCNICAS E SEGURANÇA</h3>\\n\\n- Peso...\\n\\n<h3>GARANTIA, DEVOLUÇÃO E ENVIO</h3>\\n\\n- Garantia de fábrica...\\n\\n<h3>PERGUNTAS FREQUENTES (FAQ)</h3>\\n\\n1. Pergunta 1?\\nResposta direta baseada em concorrentes...",
-  "scoreTituloOriginal": 40,
+  "scoreTituloOriginal": 85,
   "scoreTituloNovo": 98,
-  "scoreDescricaoOriginal": 30,
+  "scoreMetaOriginal": 50,
+  "scoreMetaNova": 95,
+  "scoreMarcaOriginal": 100,
+  "scoreMarcaNova": 100,
+  "scoreTagsOriginal": 70,
+  "scoreTagsNova": 95,
+  "scoreUrlOriginal": 80,
+  "scoreUrlNova": 95,
+  "scoreDescricaoOriginal": 60,
   "scoreDescricaoNova": 100,
-  "dicasMelhoria": ["Falta informar o material"],
+  "dicasMelhoria": ["Falta informar o material na descrição original", "A marca não foi cadastrada no original"],
   "emailMarketing": "ASSUNTO: ...\\n\\nCORPO DO EMAIL focado em nutrir e converter o cliente sobre este produto, citando benefícios e escassez.",
   "socialMediaPosts": ["POST 1 (Instagram): Copy do post com hashtags.", "POST 2 (TikTok): Ideia de vídeo curto e copy."],
   "facebookAds": ["AD 1 - Headline: ...\\nTexto Principal: ...", "AD 2 - Headline: ...\\nTexto Principal: ..."]
@@ -192,6 +172,12 @@ Formato obrigatório de retorno (JSON puro):
         config: {
           systemInstruction,
           temperature: 0.3,
+          safetySettings: [
+            { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+            { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+            { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+            { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE }
+          ],
           tools: [{ googleSearch: {} }],
           responseMimeType: 'application/json',
           responseSchema: {
@@ -206,6 +192,14 @@ Formato obrigatório de retorno (JSON puro):
               novaDescricaoHtml: { type: Type.STRING },
               scoreTituloOriginal: { type: Type.INTEGER },
               scoreTituloNovo: { type: Type.INTEGER },
+              scoreMetaOriginal: { type: Type.INTEGER },
+              scoreMetaNova: { type: Type.INTEGER },
+              scoreMarcaOriginal: { type: Type.INTEGER },
+              scoreMarcaNova: { type: Type.INTEGER },
+              scoreTagsOriginal: { type: Type.INTEGER },
+              scoreTagsNova: { type: Type.INTEGER },
+              scoreUrlOriginal: { type: Type.INTEGER },
+              scoreUrlNova: { type: Type.INTEGER },
               scoreDescricaoOriginal: { type: Type.INTEGER },
               scoreDescricaoNova: { type: Type.INTEGER },
               dicasMelhoria: { type: Type.ARRAY, items: { type: Type.STRING } },
@@ -215,7 +209,9 @@ Formato obrigatório de retorno (JSON puro):
             },
             required: [
               "novoTitulo", "metaDescription", "publicoAlvo", "tags", "marca", "urlProduto",
-              "novaDescricaoHtml", "scoreTituloOriginal", "scoreTituloNovo", "scoreDescricaoOriginal",
+              "novaDescricaoHtml", "scoreTituloOriginal", "scoreTituloNovo", "scoreMetaOriginal", "scoreMetaNova",
+              "scoreMarcaOriginal", "scoreMarcaNova", "scoreTagsOriginal", "scoreTagsNova", "scoreUrlOriginal", "scoreUrlNova",
+              "scoreDescricaoOriginal",
               "scoreDescricaoNova", "dicasMelhoria", "emailMarketing", "socialMediaPosts", "facebookAds"
             ]
           }
@@ -237,6 +233,14 @@ Formato obrigatório de retorno (JSON puro):
           novaDescricaoHtml: "<p><strong>Limite de requisições excedido.</strong></p><p>O sistema está utilizando corretamente a API, mas a chave configurada atingiu o limite de requisições (Status 429).</p><p>Para continuar testando, verifique se a sua chave de API inserida nas configurações (Secrets) possui saldo e cota disponível. Lembre-se que as alterações na chave do VS Code não se aplicam automaticamente ao painel do AI Studio.</p>",
           scoreTituloOriginal: 0,
           scoreTituloNovo: 0,
+          scoreMetaOriginal: 0,
+          scoreMetaNova: 0,
+          scoreMarcaOriginal: 0,
+          scoreMarcaNova: 0,
+          scoreTagsOriginal: 0,
+          scoreTagsNova: 0,
+          scoreUrlOriginal: 0,
+          scoreUrlNova: 0,
           scoreDescricaoOriginal: 0,
           scoreDescricaoNova: 0,
           dicasMelhoria: [],
@@ -245,7 +249,7 @@ Formato obrigatório de retorno (JSON puro):
           facebookAds: []
         };
       }
-      return null;
+      throw err;
     }
   }
 };

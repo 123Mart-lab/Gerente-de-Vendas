@@ -202,9 +202,9 @@ app.get('/api/marketing/products', async (req, res) => {
     
     if (!creds) {
       return res.json([
-        { id: 'mock-123', name: 'FACA DE ACO INOXIDAVEL C/ CABO PLASTICO 12" LINHA TOP CHEF' },
-        { id: 'mock-124', name: 'CONJUNTO DE PANELAS ANTIADERENTE 5 PECAS' },
-        { id: 'mock-125', name: 'CHURRASQUEIRA ELETRICA PORTATIL 220V' }
+        { id: 'mock-123', name: 'FACA DE ACO INOXIDAVEL C/ CABO PLASTICO 12" LINHA TOP CHEF', updated_at: new Date(Date.now() - 86400000 * 5).toISOString() },
+        { id: 'mock-124', name: 'CONJUNTO DE PANELAS ANTIADERENTE 5 PECAS', updated_at: new Date(Date.now() - 86400000 * 2).toISOString() },
+        { id: 'mock-125', name: 'CHURRASQUEIRA ELETRICA PORTATIL 220V', updated_at: new Date().toISOString() }
       ]);
     }
     
@@ -224,7 +224,8 @@ app.get('/api/marketing/products', async (req, res) => {
     
     const simplificado = response.data.map((p: any) => ({
       id: p.id,
-      name: p.name?.pt ?? (typeof p.name === 'string' ? p.name : 'Produto sem nome')
+      name: p.name?.pt ?? (typeof p.name === 'string' ? p.name : 'Produto sem nome'),
+      updated_at: p.updated_at
     }));
     
     res.json(simplificado);
@@ -232,9 +233,9 @@ app.get('/api/marketing/products', async (req, res) => {
     console.error('Erro no /api/marketing/products (Nuvemshop):', err?.response?.data || err.message);
     console.warn('⚠️ Fallback: Retornando produtos mockados para evitar bloqueio da interface.');
     return res.json([
-      { id: 'mock-123', name: 'Base para Amaciante Concentrada Tuff 900g' },
-      { id: 'mock-124', name: 'FACA DE ACO INOXIDAVEL C/ CABO PLASTICO 12" LINHA TOP CHEF' },
-      { id: 'mock-125', name: 'CHURRASQUEIRA ELETRICA PORTATIL 220V' }
+      { id: 'mock-123', name: 'Base para Amaciante Concentrada Tuff 900g', updated_at: new Date(Date.now() - 86400000 * 5).toISOString() },
+      { id: 'mock-124', name: 'FACA DE ACO INOXIDAVEL C/ CABO PLASTICO 12" LINHA TOP CHEF', updated_at: new Date(Date.now() - 86400000 * 2).toISOString() },
+      { id: 'mock-125', name: 'CHURRASQUEIRA ELETRICA PORTATIL 220V', updated_at: new Date().toISOString() }
     ]);
   }
 });

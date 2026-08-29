@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import axios from 'axios';
-import { Search, Sparkles, RefreshCw, LayoutTemplate, Save, CheckCircle2, ToggleLeft, ToggleRight, CheckSquare2, Square } from 'lucide-react';
+import { Search, Sparkles, RefreshCw, LayoutTemplate, Save, CheckCircle2, ToggleLeft, ToggleRight, CheckSquare2, Square, Filter, ArrowUpDown } from 'lucide-react';
 
 const getScoreColor = (score: number) => {
   if (score < 60) return 'bg-rose-100 text-rose-700 border-rose-200';
@@ -24,6 +24,33 @@ const ScoreBadge = ({ score, showLabel = false }: { score?: number, showLabel?: 
       {showLabel ? `${getScoreLabel(score)}: ${score}%` : `Nota de SEO: ${score}%`}
     </div>
   );
+};
+
+const calculateAverages = (seoResult: any) => {
+  if (!seoResult) return { avgOriginal: 0, avgNovo: 0 };
+  const origScores = [
+    seoResult.scoreTituloOriginal,
+    seoResult.scoreMetaOriginal,
+    seoResult.scoreTagsOriginal,
+    seoResult.scoreUrlOriginal,
+    seoResult.scoreMarcaOriginal,
+    seoResult.scoreDescricaoOriginal
+  ].filter(s => s !== undefined && s !== null);
+  
+  const avgOriginal = origScores.length ? Math.round(origScores.reduce((a, b) => a + b, 0) / origScores.length) : 0;
+
+  const newScores = [
+    seoResult.scoreTituloNovo,
+    seoResult.scoreMetaNova,
+    seoResult.scoreTagsNova,
+    seoResult.scoreUrlNova,
+    seoResult.scoreMarcaNova,
+    seoResult.scoreDescricaoNova
+  ].filter(s => s !== undefined && s !== null);
+
+  const avgNovo = newScores.length ? Math.round(newScores.reduce((a, b) => a + b, 0) / newScores.length) : 0;
+  
+  return { avgOriginal, avgNovo };
 };
 
 export default function ProductOptimizer() {
@@ -54,6 +81,24 @@ export default function ProductOptimizer() {
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
   const autoSaveEnabledRef = useRef(true);
   const manualResumeRef = useRef<(() => void) | null>(null);
+
+  const [skipEnabled, setSkipEnabled] = useState(false);
+  const skipEnabledRef = useRef(false);
+  const [skipDays, setSkipDays] = useState<number>(7);
+  const skipDaysRef = useRef<number>(7);
+  
+  interface AlteredProduct {
+    id: string | number;
+    name: string;
+    alteredAt: string;
+    timestamp: number;
+    oldScore: number;
+    newScore: number;
+  }
+  const [alteredProducts, setAlteredProducts] = useState<AlteredProduct[]>([]);
+  
+  const [historySearch, setHistorySearch] = useState('');
+  const [historySort, setHistorySort] = useState<'time_desc'|'time_asc'|'score_desc'|'score_asc'|'name_asc'|'name_desc'|'evo_desc'|'evo_asc'>('time_desc');
 
   const toggleAutoPilot = async () => {
     const newState = !autoPilot;
@@ -102,6 +147,18 @@ export default function ProductOptimizer() {
       if (processedProductIds.current.has(product.id)) {
         continue;
       }
+      
+      if (skipEnabledRef.current && product.updated_at) {
+        const skipDaysMs = skipDaysRef.current * 24 * 60 * 60 * 1000;
+        const updatedAt = new Date(product.updated_at).getTime();
+        const now = Date.now();
+        if (now - updatedAt < skipDaysMs) {
+          const skipProductName = product.name?.pt || product.name || 'Produto Desconhecido';
+          addLog('info', `Pulando ${skipProductName} (alterado há menos de ${skipDaysRef.current} dias)`);
+          continue;
+        }
+      }
+      
       processedProductIds.current.add(product.id);
 
       const productName = product.name?.pt || product.name || 'Produto Desconhecido';
@@ -174,6 +231,16 @@ export default function ProductOptimizer() {
               productId: product.id,
               data: payloadToSave
             });
+            
+            const avgs = calculateAverages(finalData.otimizado);
+            setAlteredProducts(prev => [{
+              id: product.id,
+              name: product.name?.pt || product.name || 'Produto Desconhecido',
+              alteredAt: new Date().toLocaleString(),
+              timestamp: Date.now(),
+              oldScore: avgs.avgOriginal,
+              newScore: avgs.avgNovo
+            }, ...prev]);
             
             setIsSaving(false);
             addLog('success', `Produto salvo com sucesso! Passando para o próximo...`);
@@ -313,6 +380,15 @@ export default function ProductOptimizer() {
       });
       if (response.data.success) {
         alert(response.data.mock ? 'Produto salvo com sucesso! (Modo Simulação)' : 'Produto salvo e atualizado na Nuvemshop com sucesso!');
+        const avgs = calculateAverages(seoResult);
+        setAlteredProducts(prev => [{
+          id: originalProduct.id,
+          name: originalProduct.name?.pt || originalProduct.name || 'Produto Desconhecido',
+          alteredAt: new Date().toLocaleString(),
+          timestamp: Date.now(),
+          oldScore: avgs.avgOriginal,
+          newScore: avgs.avgNovo
+        }, ...prev]);
         setOptimized(false);
         setOriginalProduct(null);
         setSeoResult(null);
@@ -332,33 +408,32 @@ export default function ProductOptimizer() {
     return { __html: html || '' };
   };
 
-  let avgOriginal: number | undefined = undefined;
-  let avgNovo: number | undefined = undefined;
-  if (seoResult) {
-    const origScores = [
-      seoResult.scoreTituloOriginal,
-      seoResult.scoreMetaOriginal,
-      seoResult.scoreTagsOriginal,
-      seoResult.scoreUrlOriginal,
-      seoResult.scoreMarcaOriginal,
-      seoResult.scoreDescricaoOriginal
-    ].filter(s => s !== undefined && s !== null);
-    if (origScores.length) {
-      avgOriginal = Math.round(origScores.reduce((a, b) => a + b, 0) / origScores.length);
-    }
+  const { avgOriginal, avgNovo } = calculateAverages(seoResult);
 
-    const newScores = [
-      seoResult.scoreTituloNovo,
-      seoResult.scoreMetaNova,
-      seoResult.scoreTagsNova,
-      seoResult.scoreUrlNova,
-      seoResult.scoreMarcaNova,
-      seoResult.scoreDescricaoNova
-    ].filter(s => s !== undefined && s !== null);
-    if (newScores.length) {
-      avgNovo = Math.round(newScores.reduce((a, b) => a + b, 0) / newScores.length);
+  const filteredAndSortedHistory = useMemo(() => {
+    let result = [...alteredProducts];
+    
+    if (historySearch.trim()) {
+      const q = historySearch.toLowerCase();
+      result = result.filter(p => p.name.toLowerCase().includes(q));
     }
-  }
+    
+    result.sort((a, b) => {
+      switch (historySort) {
+        case 'time_desc': return b.timestamp - a.timestamp;
+        case 'time_asc': return a.timestamp - b.timestamp;
+        case 'score_desc': return b.newScore - a.newScore;
+        case 'score_asc': return a.newScore - b.newScore;
+        case 'name_asc': return a.name.localeCompare(b.name);
+        case 'name_desc': return b.name.localeCompare(a.name);
+        case 'evo_desc': return (b.newScore - b.oldScore) - (a.newScore - a.oldScore);
+        case 'evo_asc': return (a.newScore - a.oldScore) - (b.newScore - b.oldScore);
+        default: return 0;
+      }
+    });
+    
+    return result;
+  }, [alteredProducts, historySearch, historySort]);
 
   return (
     <div className="space-y-6">
@@ -388,37 +463,68 @@ export default function ProductOptimizer() {
             </button>
           </div>
           {autoPilot && (
-            <div className={`flex items-center gap-2 border px-3 py-1.5 rounded-md shadow-sm animate-in fade-in slide-in-from-top-2 transition-colors ${autoSaveEnabled ? 'bg-indigo-50 border-indigo-100' : 'bg-slate-50 border-slate-200'}`}>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input 
-                  type="checkbox" 
-                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
-                  checked={autoSaveEnabled}
+            <>
+              <div className={`flex items-center gap-2 border px-3 py-1.5 rounded-md shadow-sm animate-in fade-in slide-in-from-top-2 transition-colors ${autoSaveEnabled ? 'bg-indigo-50 border-indigo-100' : 'bg-slate-50 border-slate-200'}`}>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input 
+                    type="checkbox" 
+                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
+                    checked={autoSaveEnabled}
+                    onChange={(e) => {
+                      setAutoSaveEnabled(e.target.checked);
+                      autoSaveEnabledRef.current = e.target.checked;
+                      if (e.target.checked && manualResumeRef.current) {
+                        manualResumeRef.current();
+                      }
+                    }}
+                  />
+                  <span className={`text-xs font-medium ${autoSaveEnabled ? 'text-indigo-700' : 'text-slate-600'}`}>Gravar automático em</span>
+                </label>
+                <input
+                  type="number"
+                  min="0.1"
+                  step="0.1"
+                  disabled={!autoSaveEnabled}
+                  className="w-16 text-center text-sm border border-slate-200 rounded focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 outline-none p-1 bg-white text-slate-800 font-semibold disabled:bg-slate-100 disabled:text-slate-400"
+                  value={autoPilotInterval}
                   onChange={(e) => {
-                    setAutoSaveEnabled(e.target.checked);
-                    autoSaveEnabledRef.current = e.target.checked;
-                    if (e.target.checked && manualResumeRef.current) {
-                      manualResumeRef.current();
-                    }
+                    const val = parseFloat(e.target.value);
+                    setAutoPilotInterval(val);
+                    autoPilotIntervalRef.current = isNaN(val) ? 0.5 : val;
                   }}
                 />
-                <span className={`text-xs font-medium ${autoSaveEnabled ? 'text-indigo-700' : 'text-slate-600'}`}>Gravar automático em</span>
-              </label>
-              <input
-                type="number"
-                min="0.1"
-                step="0.1"
-                disabled={!autoSaveEnabled}
-                className="w-16 text-center text-sm border border-slate-200 rounded focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 outline-none p-1 bg-white text-slate-800 font-semibold disabled:bg-slate-100 disabled:text-slate-400"
-                value={autoPilotInterval}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-                  setAutoPilotInterval(val);
-                  autoPilotIntervalRef.current = isNaN(val) ? 0.5 : val;
-                }}
-              />
-              <span className={`text-xs font-medium ${autoSaveEnabled ? 'text-indigo-700' : 'text-slate-500'}`}>min</span>
-            </div>
+                <span className={`text-xs font-medium ${autoSaveEnabled ? 'text-indigo-700' : 'text-slate-500'}`}>min</span>
+              </div>
+              
+              <div className={`flex items-center gap-2 border px-3 py-1.5 rounded-md shadow-sm animate-in fade-in slide-in-from-top-2 transition-colors ${skipEnabled ? 'bg-indigo-50 border-indigo-100' : 'bg-slate-50 border-slate-200'}`}>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input 
+                    type="checkbox" 
+                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
+                    checked={skipEnabled}
+                    onChange={(e) => {
+                      setSkipEnabled(e.target.checked);
+                      skipEnabledRef.current = e.target.checked;
+                    }}
+                  />
+                  <span className={`text-xs font-medium ${skipEnabled ? 'text-indigo-700' : 'text-slate-600'}`}>Pular alterados nos últimos</span>
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  disabled={!skipEnabled}
+                  className="w-16 text-center text-sm border border-slate-200 rounded focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 outline-none p-1 bg-white text-slate-800 font-semibold disabled:bg-slate-100 disabled:text-slate-400"
+                  value={skipDays}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10);
+                    setSkipDays(val);
+                    skipDaysRef.current = isNaN(val) ? 7 : val;
+                  }}
+                />
+                <span className={`text-xs font-medium ${skipEnabled ? 'text-indigo-700' : 'text-slate-500'}`}>dias</span>
+              </div>
+            </>
           )}
         </div>
       </div>
@@ -831,63 +937,6 @@ export default function ProductOptimizer() {
               </div>
             </div>
 
-            {/* Nova Seção: Campanha de Marketing 360 (Multi-Agentes) */}
-            {(seoResult?.emailMarketing || seoResult?.socialMediaPosts || seoResult?.facebookAds) && (
-              <div className="border-t border-slate-200">
-                <div className="p-5 bg-indigo-50/50 border-b border-slate-200">
-                  <h3 className="text-lg font-bold text-indigo-900 flex items-center gap-2">
-                    <Sparkles className="w-5 h-5 text-indigo-600" />
-                    Kit de Marketing 360º (Gerado por IA)
-                  </h3>
-                  <p className="text-sm text-indigo-700 mt-1">Materiais gerados automaticamente para você divulgar este produto.</p>
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-0 divide-y md:divide-y-0 md:divide-x divide-slate-200">
-                  
-                  {/* Email Marketing */}
-                  <div className="p-5 bg-white">
-                    <label className="text-xs font-semibold text-indigo-600 uppercase tracking-wider flex items-center gap-2 mb-3">
-                      Email Marketing (Nutrição)
-                    </label>
-                    <textarea
-                      readOnly
-                      value={seoResult?.emailMarketing || ''}
-                      className="w-full h-64 text-sm text-slate-700 p-3 bg-slate-50 border border-slate-200 rounded focus:outline-none resize-none"
-                    />
-                  </div>
-
-                  {/* Redes Sociais */}
-                  <div className="p-5 bg-white">
-                    <label className="text-xs font-semibold text-indigo-600 uppercase tracking-wider flex items-center gap-2 mb-3">
-                      Posts Redes Sociais
-                    </label>
-                    <div className="space-y-3 h-64 overflow-y-auto pr-2">
-                      {seoResult?.socialMediaPosts?.map((post: string, i: number) => (
-                        <div key={i} className="p-3 bg-slate-50 border border-slate-200 rounded text-sm text-slate-700 whitespace-pre-wrap">
-                          {post}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Facebook Ads */}
-                  <div className="p-5 bg-white">
-                    <label className="text-xs font-semibold text-indigo-600 uppercase tracking-wider flex items-center gap-2 mb-3">
-                      Criativos de Ads (Meta)
-                    </label>
-                    <div className="space-y-3 h-64 overflow-y-auto pr-2">
-                      {seoResult?.facebookAds?.map((ad: string, i: number) => (
-                        <div key={i} className="p-3 bg-slate-50 border border-slate-200 rounded text-sm text-slate-700 whitespace-pre-wrap">
-                          {ad}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                </div>
-              </div>
-            )}
-
             {/* Rodapé: Ações */}
             <div className="p-5 bg-slate-50 border-t border-slate-200 flex justify-end gap-3 sticky bottom-0 z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
               <button 
@@ -910,6 +959,98 @@ export default function ProductOptimizer() {
               </button>
             </div>
             
+          </div>
+        )}
+      </div>
+
+      {/* SEÇÃO INDEPENDENTE: HISTÓRICO DE OTIMIZAÇÕES */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+        <div className="p-5 border-b border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+              <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+              Histórico de Otimizações
+            </h3>
+            <p className="text-sm text-slate-500 mt-1">Produtos otimizados e salvos durante esta sessão.</p>
+          </div>
+          <div className="flex items-center gap-3 w-full sm:w-auto">
+            <div className="relative flex-1 sm:flex-initial">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <Search className="h-4 w-4 text-slate-400" />
+              </div>
+              <input
+                type="text"
+                placeholder="Filtrar produtos..."
+                className="block w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg leading-5 bg-slate-50 placeholder-slate-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-sky-500 focus:border-sky-500 sm:text-sm transition-colors"
+                value={historySearch}
+                onChange={(e) => setHistorySearch(e.target.value)}
+              />
+            </div>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <Filter className="h-4 w-4 text-slate-400" />
+              </div>
+              <select
+                className="block w-full pl-9 pr-8 py-2 border border-slate-200 rounded-lg leading-5 bg-slate-50 text-slate-700 focus:outline-none focus:bg-white focus:ring-2 focus:ring-sky-500 focus:border-sky-500 sm:text-sm transition-colors appearance-none cursor-pointer"
+                value={historySort}
+                onChange={(e) => setHistorySort(e.target.value as any)}
+              >
+                <option value="time_desc">Mais recentes</option>
+                <option value="time_asc">Mais antigos</option>
+                <option value="score_desc">Maior Score Novo</option>
+                <option value="score_asc">Menor Score Novo</option>
+                <option value="evo_desc">Maior Evolução</option>
+                <option value="evo_asc">Menor Evolução</option>
+                <option value="name_asc">Nome (A-Z)</option>
+                <option value="name_desc">Nome (Z-A)</option>
+              </select>
+              <div className="absolute inset-y-0 right-0 pr-2 flex items-center pointer-events-none">
+                <ArrowUpDown className="h-3 w-3 text-slate-400" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {alteredProducts.length === 0 ? (
+          <div className="flex flex-col items-center justify-center text-slate-400 p-12">
+            <LayoutTemplate className="w-12 h-12 mb-3 text-slate-200" />
+            <p className="text-center font-medium text-slate-500">Nenhum produto salvo ainda</p>
+            <p className="text-center text-sm mt-1 max-w-sm">Quando você aprovar ou o piloto automático salvar as otimizações, elas aparecerão aqui.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm text-slate-600">
+              <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase text-xs">
+                <tr>
+                  <th className="px-5 py-3 font-semibold">Produto</th>
+                  <th className="px-5 py-3 font-semibold">Data/Hora</th>
+                  <th className="px-5 py-3 font-semibold">Score Antigo</th>
+                  <th className="px-5 py-3 font-semibold">Score Novo</th>
+                  <th className="px-5 py-3 font-semibold">Evolução</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredAndSortedHistory.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-5 py-8 text-center text-slate-500">
+                      Nenhum produto encontrado com este filtro.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredAndSortedHistory.map((p, i) => (
+                    <tr key={i} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-5 py-3 font-medium text-slate-900">{p.name}</td>
+                      <td className="px-5 py-3 text-slate-500">{p.alteredAt}</td>
+                      <td className="px-5 py-3"><ScoreBadge score={p.oldScore} /></td>
+                      <td className="px-5 py-3"><ScoreBadge score={p.newScore} /></td>
+                      <td className="px-5 py-3 font-bold text-emerald-600 flex items-center gap-1">
+                        +{Math.max(0, p.newScore - p.oldScore)}%
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
         )}
       </div>

@@ -61,7 +61,7 @@ export default function DeviceManager() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {devices.map((device) => (
           <div key={device.id} className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
-            <div className="flex justify-between items-start mb-6">
+            <div className="flex flex-col md:flex-row md:justify-between items-start gap-4 mb-6">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 bg-gray-50 rounded-full flex items-center justify-center border border-gray-100">
                   <Smartphone className="w-6 h-6 text-gray-600" />

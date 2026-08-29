@@ -175,7 +175,7 @@ export default function ProductOptimizer() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-start">
+      <div className="flex flex-col md:flex-row md:justify-between items-start gap-4">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
             <Sparkles className="w-6 h-6 text-sky-500" />

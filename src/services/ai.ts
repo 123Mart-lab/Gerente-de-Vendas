@@ -187,7 +187,7 @@ Formato obrigatório de retorno (JSON puro):
     try {
       // Usando a versão Pro estável mais recente
       const response = await ai.models.generateContent({
-        model: 'gemini-3.1-pro-preview',
+        model: 'gemini-3.6-flash',
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         config: {
           systemInstruction,

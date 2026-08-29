@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, Zap, Settings, Play, Smartphone, ListFilter, 
   Sparkles, Tags, Megaphone, Store, Mail, Share2, Target, 
   Image as ImageIcon, Video, Menu, X, Briefcase, Search, Radar, 
-  Palette, PenTool, ShoppingBag, BarChart3
+  Palette, PenTool, ShoppingBag, BarChart3, DollarSign
 } from 'lucide-react';
 
 import DashboardOverview from './components/DashboardOverview';
@@ -26,21 +26,25 @@ import ContentCopywriter from './components/publicidade/ContentCopywriter';
 import MerchantCenterSpecialist from './components/publicidade/MerchantCenterSpecialist';
 import MetricsAnalyst from './components/publicidade/MetricsAnalyst';
 
+import FinancialAnalyst from './components/financeiro/FinancialAnalyst';
 import { SettingsProvider } from './contexts/SettingsContext';
 
-type SectorType = 'comercial' | 'marketing';
+type SectorType = 'comercial' | 'marketing' | 'financeiro';
 type ComercialTabType = 'dashboard' | 'sales' | 'campaigns' | 'devices' | 'lists' | 'email-marketing' | 'settings';
 type MarketingTabType = 'mkt-dashboard' | 'project-manager' | 'market-researcher' | 'competitive-intelligence' | 'art-director' | 'content-copywriter' | 'social-media' | 'ads-manager' | 'seo-specialist' | 'merchant-center' | 'metrics-analyst';
+type FinanceiroTabType = 'financial-analyst';
 
 export default function App() {
   const [activeSector, setActiveSector] = useState<SectorType>('comercial');
   const [activeComercialTab, setActiveComercialTab] = useState<ComercialTabType>('dashboard');
   const [activeMarketingTab, setActiveMarketingTab] = useState<MarketingTabType>('mkt-dashboard');
+  const [activeFinanceiroTab, setActiveFinanceiroTab] = useState<FinanceiroTabType>('financial-analyst');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  const handleTabChange = (type: 'comercial' | 'marketing', tab: any) => {
+  const handleTabChange = (type: SectorType, tab: any) => {
     if (type === 'comercial') setActiveComercialTab(tab);
-    else setActiveMarketingTab(tab);
+    else if (type === 'marketing') setActiveMarketingTab(tab);
+    else if (type === 'financeiro') setActiveFinanceiroTab(tab);
     setIsMobileMenuOpen(false);
   };
 
@@ -55,7 +59,7 @@ export default function App() {
         case 'email-marketing': return <EmailMarketing />;
         case 'settings': return <SettingsPanel />;
       }
-    } else {
+    } else if (activeSector === 'marketing') {
       switch (activeMarketingTab) {
         case 'mkt-dashboard': return <MarketingDashboard />;
         case 'project-manager': return <ProjectManager />;
@@ -68,6 +72,10 @@ export default function App() {
         case 'seo-specialist': return <SeoSpecialist />;
         case 'merchant-center': return <MerchantCenterSpecialist />;
         case 'metrics-analyst': return <MetricsAnalyst />;
+      }
+    } else if (activeSector === 'financeiro') {
+      switch (activeFinanceiroTab) {
+        case 'financial-analyst': return <FinancialAnalyst />;
       }
     }
   };
@@ -83,7 +91,7 @@ export default function App() {
         case 'email-marketing': return 'Email Marketing & CRM';
         case 'settings': return 'Segurança e Cadência de Envio';
       }
-    } else {
+    } else if (activeSector === 'marketing') {
       switch (activeMarketingTab) {
         case 'mkt-dashboard': return 'Visão Geral do Marketing';
         case 'project-manager': return 'Gerente de Projetos';
@@ -96,6 +104,10 @@ export default function App() {
         case 'seo-specialist': return 'Especialista SEO';
         case 'merchant-center': return 'Merchant Center & Search Console';
         case 'metrics-analyst': return 'Analista de Métricas (BI)';
+      }
+    } else if (activeSector === 'financeiro') {
+      switch (activeFinanceiroTab) {
+        case 'financial-analyst': return 'Analista Financeiro';
       }
     }
   };
@@ -130,6 +142,12 @@ export default function App() {
               onClick={() => setActiveSector('marketing')}
               icon={<Megaphone className="w-4 h-4" />}
               label="Publicidade"
+            />
+            <SectorTab 
+              active={activeSector === 'financeiro'} 
+              onClick={() => setActiveSector('financeiro')}
+              icon={<DollarSign className="w-4 h-4" />}
+              label="Financeiro"
             />
           </nav>
         </header>
@@ -186,6 +204,13 @@ export default function App() {
 
                   <div className="px-3 mt-6 mb-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Análise de Dados</div>
                   <NavItem icon={<BarChart3 className="w-5 h-5" />} label="Analista de Métricas (BI)" active={activeMarketingTab === 'metrics-analyst'} onClick={() => handleTabChange('marketing', 'metrics-analyst')} />
+                </>
+              )}
+
+              {activeSector === 'financeiro' && (
+                <>
+                  <div className="px-3 mb-2 text-xs font-semibold text-slate-400 uppercase tracking-wider mt-2 md:mt-0">Análise & Viabilidade</div>
+                  <NavItem icon={<DollarSign className="w-5 h-5" />} label="Analista Financeiro" active={activeFinanceiroTab === 'financial-analyst'} onClick={() => handleTabChange('financeiro', 'financial-analyst')} />
                 </>
               )}
             </nav>

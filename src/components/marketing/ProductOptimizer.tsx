@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import axios from 'axios';
-import { Search, Sparkles, RefreshCw, LayoutTemplate, Save, CheckCircle2, ToggleLeft, ToggleRight, CheckSquare2, Square, Filter, ArrowUpDown } from 'lucide-react';
+import { Search, Sparkles, RefreshCw, Play, StopCircle, LayoutTemplate, Save, CheckCircle2, ToggleLeft, ToggleRight, CheckSquare2, Square, Filter, ArrowUpDown } from 'lucide-react';
 
 const getScoreColor = (score: number) => {
   if (score < 60) return 'bg-rose-100 text-rose-700 border-rose-200';
@@ -75,8 +75,8 @@ export default function ProductOptimizer() {
   const autoPilotActive = useRef(false);
   const processedProductIds = useRef<Set<string | number>>(new Set());
   
-  const [autoPilotInterval, setAutoPilotInterval] = useState<number>(5);
-  const autoPilotIntervalRef = useRef<number>(5);
+  const [autoPilotInterval, setAutoPilotInterval] = useState<number>(1);
+  const autoPilotIntervalRef = useRef<number>(1);
   
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
   const autoSaveEnabledRef = useRef(true);
@@ -301,7 +301,7 @@ export default function ProductOptimizer() {
       setSeoResult(null);
       setOptimized(false);
       
-      addLog('warning', `[AGENTE 1] Analisando SEO do produto: ${productName}`);
+      addLog('warning', `[GERENTE DE PROJETOS] Orquestrando otimização e enviando briefing do produto: ${productName} para a equipe.`);
       setIsOptimizing(true);
       
       try {
@@ -336,7 +336,7 @@ export default function ProductOptimizer() {
 
         if (autoSaveEnabledRef.current) {
           const currentInterval = autoPilotIntervalRef.current;
-          addLog('success', `[AGENTES 2 e 3] Otimização gerada. Aguardando revisão visual por ${currentInterval} min...`);
+          addLog('success', `[ESPECIALISTA SEO] Recebi o briefing! Otimização técnica concluída com sucesso. Analisando salvamento...`);
           
           for (let i = 0; i < currentInterval * 60; i++) {
             if (!autoPilotActive.current || !autoSaveEnabledRef.current) break;
@@ -346,7 +346,7 @@ export default function ProductOptimizer() {
           if (!autoPilotActive.current) break;
 
           if (autoSaveEnabledRef.current) {
-            addLog('warning', `[AGENTE 4] Salvando alterações na Nuvemshop...`);
+            addLog('warning', `[ESPECIALISTA SEO] Atitude pró-ativa ativada: Salvando alterações automaticamente na Nuvemshop...`);
             setIsSaving(true);
             
             const payloadToSave: any = {};
@@ -384,7 +384,7 @@ export default function ProductOptimizer() {
         }
         
         if (!autoSaveEnabledRef.current) {
-          addLog('success', `[AGENTES 2 e 3] Otimização gerada. Aguardando você clicar em Salvar manual...`);
+          addLog('success', `[ESPECIALISTA SEO] Otimização gerada. Aguardando Gerente aprovar salvamento manual...`);
           await new Promise<void>(resolve => {
             manualResumeRef.current = resolve;
           });
@@ -816,13 +816,25 @@ export default function ProductOptimizer() {
           </div>
           <button 
             onClick={handleOptimize}
-            disabled={isOptimizing}
+            disabled={isOptimizing || autoPilot}
             className="w-full md:w-auto bg-slate-900 hover:bg-slate-800 text-white font-medium py-2.5 px-6 rounded-lg flex items-center justify-center gap-2 transition-all disabled:opacity-50 whitespace-nowrap shadow-sm"
           >
-            {isOptimizing ? (
+            {isOptimizing && !autoPilot ? (
               <><RefreshCw className="w-4 h-4 animate-spin" /> Analisando...</>
             ) : (
-              <><Sparkles className="w-4 h-4" /> Gerar Otimização Profissional</>
+              <><Sparkles className="w-4 h-4" /> Gerar Otimização Individual</>
+            )}
+          </button>
+          
+          <button 
+            onClick={toggleAutoPilot}
+            disabled={isOptimizing && !autoPilot}
+            className={`w-full md:w-auto ${autoPilot ? 'bg-red-600 hover:bg-red-700' : 'bg-indigo-600 hover:bg-indigo-700'} text-white font-medium py-2.5 px-6 rounded-lg flex items-center justify-center gap-2 transition-all disabled:opacity-50 whitespace-nowrap shadow-sm`}
+          >
+            {autoPilot ? (
+              <><StopCircle className="w-4 h-4 animate-pulse" /> Interromper Otimização em Massa</>
+            ) : (
+              <><Play className="w-4 h-4" /> Orquestrar Todos os Anúncios</>
             )}
           </button>
         </div>

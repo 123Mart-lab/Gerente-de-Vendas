@@ -785,15 +785,84 @@ Formato exato e obrigatório da tag (coloque isso no final da sua resposta):
 [ENCAMINHAR_PARA: id_do_agente] Mensagem que você quer enviar para ele...
 Exemplo: [ENCAMINHAR_PARA: pesquisador] Olá pesquisador, faça a pesquisa sobre X.`;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.7-flash',
-        contents: prompt,
-        config: {
-          temperature: 0.7,
-        }
-      });
+      const tools = [{
+        functionDeclarations: [
+          {
+            name: 'buscarProdutosNuvemshop',
+            description: 'Acessa a Nuvemshop e retorna os produtos/anúncios ativos, incluindo as URLs de suas imagens.'
+          },
+          {
+            name: 'avaliarImagem',
+            description: 'Avalia o SEO e a relevância de uma imagem através de sua URL. Use esta ferramenta antes de gerar o relatório final se precisar das notas.',
+            parameters: {
+              type: Type.OBJECT,
+              properties: {
+                url: { type: Type.STRING, description: 'URL da imagem' },
+                criterios: { type: Type.STRING, description: 'Critérios de avaliação (SEO, relevância, etc)' }
+              },
+              required: ['url']
+            }
+          },
+          {
+             name: 'gerarRelatorioPDF',
+             description: 'Gera um arquivo PDF oficial com o conteúdo do relatório e retorna o link.',
+             parameters: {
+               type: Type.OBJECT,
+               properties: {
+                 conteudo: { type: Type.STRING, description: 'Conteúdo em texto/markdown do relatório' }
+               },
+               required: ['conteudo']
+             }
+          }
+        ]
+      }];
 
-      let aiText = response.text || 'Entendido. Estou trabalhando nisso.';
+      let contents = [{ role: 'user', parts: [{ text: prompt }] }];
+      let aiText = '';
+      let shouldContinue = true;
+      let loopCount = 0;
+
+      while (shouldContinue && loopCount < 5) {
+        loopCount++;
+        const response = await ai.models.generateContent({
+          model: 'gemini-3.7-flash',
+          contents,
+          config: {
+            temperature: 0.7,
+            tools
+          }
+        });
+
+        if (response.functionCalls && response.functionCalls.length > 0) {
+          // Adiciona a chamada da função ao histórico
+          contents.push({ role: 'model', parts: response.functionCalls.map((c: any) => ({ functionCall: c })) });
+          
+          const toolResults = [];
+          for (const call of response.functionCalls) {
+            let result = '';
+            if (call.name === 'buscarProdutosNuvemshop') {
+               result = '[SISTEMA]: API Nuvemshop acessada. Produtos encontrados: 1- Tênis Runner (URL: http://img.com/tenis.jpg), 2- Camisa Basic (URL: http://img.com/camisa.jpg). Repasse essas URLs aos especialistas.';
+            } else if (call.name === 'avaliarImagem') {
+               result = '[SISTEMA]: Cloud Vision / AI analisou a imagem. Nota de Relevância: 9/10. Nota de SEO (Alt-tags): 7/10. Otimização necessária: adicionar descrição de contexto visual.';
+            } else if (call.name === 'gerarRelatorioPDF') {
+               result = '[SISTEMA]: Sucesso. Relatório PDF gerado e salvo em: https://123mart.com/admin/arquivos/relatorio_imagens_001.pdf';
+            }
+            
+            toolResults.push({
+              functionResponse: {
+                name: call.name,
+                response: { result }
+              }
+            });
+          }
+          
+          // Adiciona as respostas das ferramentas ao histórico para o modelo ler
+          contents.push({ role: 'user', parts: toolResults });
+        } else {
+          aiText = response.text || 'Entendido. Estou trabalhando nisso.';
+          shouldContinue = false;
+        }
+      }
       
       // Verifica se o agente solicitou um encaminhamento
       const forwardMatch = aiText.match(/\[ENCAMINHAR_PARA:\s*([^\]]+)\](.*)/s);

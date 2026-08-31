@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-//, { useState } from 'react';
 import { Sparkles, Tags } from 'lucide-react';
 import ProductOptimizer from './ProductOptimizer';
 import CategorySEO from './CategorySEO';
@@ -78,7 +77,8 @@ export default function SeoSpecialist() {
       </div>
 
       <div className="mt-6">
-        {activeTab === 'products' ? <ProductOptimizer /> : <CategorySEO />}
+        {activeTab === 'products' && <ProductOptimizer />}
+        {activeTab === 'categories' && <CategorySEO />}
       </div>
     </div>
   );

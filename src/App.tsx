@@ -3,7 +3,8 @@ import {
   LayoutDashboard, Users, Zap, Settings, Play, Smartphone, ListFilter, 
   Sparkles, Tags, Megaphone, Store, Mail, Share2, Target, 
   Image as ImageIcon, Video, Menu, X, Briefcase, Search, Radar, 
-  Palette, PenTool, ShoppingBag, BarChart3, DollarSign
+  Palette, PenTool, ShoppingBag, BarChart3, DollarSign, ChevronDown, ChevronRight,
+  MapPin, Globe, Database, ShoppingCart, Magnet
 } from 'lucide-react';
 
 import DashboardOverview from './components/DashboardOverview';
@@ -27,24 +28,30 @@ import MerchantCenterSpecialist from './components/publicidade/MerchantCenterSpe
 import MetricsAnalyst from './components/publicidade/MetricsAnalyst';
 
 import FinancialAnalyst from './components/financeiro/FinancialAnalyst';
+import RHDashboard from './components/rh/RHDashboard';
 import { SettingsProvider } from './contexts/SettingsContext';
 
-type SectorType = 'comercial' | 'marketing' | 'financeiro';
-type ComercialTabType = 'dashboard' | 'sales' | 'campaigns' | 'devices' | 'lists' | 'email-marketing' | 'settings';
+type SectorType = 'comercial' | 'marketing' | 'financeiro' | 'rh';
+type ComercialTabType = 'dashboard' | 'sales' | 'campaigns' | 'devices' | 'lists' | 'email-marketing' | 'settings' | 'vendedor-1' | 'vendedor-2' | 'gerente-comercial' | 'enviados-agentes' | 'google-maps' | 'google-search' | 'casa-dos-dados' | 'carrinho-abandonado' | 'inbound-ads';
 type MarketingTabType = 'mkt-dashboard' | 'project-manager' | 'market-researcher' | 'competitive-intelligence' | 'art-director' | 'content-copywriter' | 'social-media' | 'ads-manager' | 'seo-specialist' | 'merchant-center' | 'metrics-analyst';
 type FinanceiroTabType = 'financial-analyst';
+type RHTabType = 'rh-dashboard';
 
 export default function App() {
   const [activeSector, setActiveSector] = useState<SectorType>('comercial');
   const [activeComercialTab, setActiveComercialTab] = useState<ComercialTabType>('dashboard');
   const [activeMarketingTab, setActiveMarketingTab] = useState<MarketingTabType>('mkt-dashboard');
   const [activeFinanceiroTab, setActiveFinanceiroTab] = useState<FinanceiroTabType>('financial-analyst');
+  const [activeRHTab, setActiveRHTab] = useState<RHTabType>('rh-dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isEquipeOpen, setIsEquipeOpen] = useState(false);
+  const [isLeadsOpen, setIsLeadsOpen] = useState(false);
 
   const handleTabChange = (type: SectorType, tab: any) => {
     if (type === 'comercial') setActiveComercialTab(tab);
     else if (type === 'marketing') setActiveMarketingTab(tab);
     else if (type === 'financeiro') setActiveFinanceiroTab(tab);
+    else if (type === 'rh') setActiveRHTab(tab);
     setIsMobileMenuOpen(false);
   };
 
@@ -53,6 +60,15 @@ export default function App() {
       switch (activeComercialTab) {
         case 'dashboard': return <DashboardOverview />;
         case 'sales': return <SalesRoom />;
+        case 'vendedor-1': return <SalesRoom />; // Placeholder auditoria
+        case 'vendedor-2': return <SalesRoom />; // Placeholder auditoria
+        case 'gerente-comercial': return <SalesRoom />; // Placeholder auditoria
+        case 'enviados-agentes': return <ListManager />; // Placeholder para "Enviados Agentes"
+        case 'google-maps': return <ListManager />; // Placeholder
+        case 'google-search': return <ListManager />; // Placeholder
+        case 'casa-dos-dados': return <ListManager />; // Placeholder
+        case 'carrinho-abandonado': return <ListManager />; // Placeholder
+        case 'inbound-ads': return <ListManager />; // Placeholder
         case 'campaigns': return <CampaignManager />;
         case 'devices': return <DeviceManager />;
         case 'lists': return <ListManager />;
@@ -76,6 +92,10 @@ export default function App() {
     } else if (activeSector === 'financeiro') {
       switch (activeFinanceiroTab) {
         case 'financial-analyst': return <FinancialAnalyst />;
+      }
+    } else if (activeSector === 'rh') {
+      switch (activeRHTab) {
+        case 'rh-dashboard': return <RHDashboard />;
       }
     }
   };
@@ -108,6 +128,10 @@ export default function App() {
     } else if (activeSector === 'financeiro') {
       switch (activeFinanceiroTab) {
         case 'financial-analyst': return 'Analista Financeiro';
+      }
+    } else if (activeSector === 'rh') {
+      switch (activeRHTab) {
+        case 'rh-dashboard': return 'Recursos Humanos (RH)';
       }
     }
   };
@@ -149,6 +173,12 @@ export default function App() {
               icon={<DollarSign className="w-4 h-4" />}
               label="Financeiro"
             />
+            <SectorTab 
+              active={activeSector === 'rh'} 
+              onClick={() => setActiveSector('rh')}
+              icon={<Users className="w-4 h-4" />}
+              label="RH & Acessos"
+            />
           </nav>
         </header>
 
@@ -171,11 +201,59 @@ export default function App() {
                 <>
                   <div className="px-3 mb-2 text-xs font-semibold text-slate-400 uppercase tracking-wider mt-2 md:mt-0">Atendimento & Vendas</div>
                   <NavItem icon={<LayoutDashboard className="w-5 h-5" />} label="Visão Geral" active={activeComercialTab === 'dashboard'} onClick={() => handleTabChange('comercial', 'dashboard')} />
-                  <NavItem icon={<Users className="w-5 h-5" />} label="Sala de Vendas" active={activeComercialTab === 'sales'} onClick={() => handleTabChange('comercial', 'sales')} />
+                  
+                  <div className="mt-1">
+                    <button
+                      onClick={() => setIsEquipeOpen(!isEquipeOpen)}
+                      className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                    >
+                      <div className="flex items-center">
+                        <Users className="w-5 h-5 mr-3 text-slate-400" />
+                        Equipe de Vendas
+                      </div>
+                      {isEquipeOpen ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                    </button>
+                    
+                    {isEquipeOpen && (
+                      <div className="ml-4 mt-1 border-l border-slate-200 pl-2 flex flex-col gap-1">
+                        <NavItem icon={<span className="w-2 h-2 rounded-full bg-slate-300" />} label="Vendedor 1" active={activeComercialTab === 'vendedor-1'} onClick={() => handleTabChange('comercial', 'vendedor-1')} />
+                        <NavItem icon={<span className="w-2 h-2 rounded-full bg-slate-300" />} label="Vendedor 2" active={activeComercialTab === 'vendedor-2'} onClick={() => handleTabChange('comercial', 'vendedor-2')} />
+                        <NavItem icon={<span className="w-2 h-2 rounded-full bg-slate-300" />} label="Gerente Comercial" active={activeComercialTab === 'gerente-comercial'} onClick={() => handleTabChange('comercial', 'gerente-comercial')} />
+                      </div>
+                    )}
+                  </div>
+
                   <NavItem icon={<Play className="w-5 h-5" />} label="Regras de Disparo" active={activeComercialTab === 'campaigns'} onClick={() => handleTabChange('comercial', 'campaigns')} />
                   <NavItem icon={<Smartphone className="w-5 h-5" />} label="Aparelhos" active={activeComercialTab === 'devices'} onClick={() => handleTabChange('comercial', 'devices')} />
-                  <NavItem icon={<ListFilter className="w-5 h-5" />} label="Listas" active={activeComercialTab === 'lists'} onClick={() => handleTabChange('comercial', 'lists')} />
-                  <NavItem icon={<Mail className="w-5 h-5" />} label="Email Marketing" active={activeComercialTab === 'email-marketing'} onClick={() => handleTabChange('comercial', 'email-marketing')} />
+                  
+                  <div className="px-3 mt-6 mb-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Fontes e Listas</div>
+                  <div className="mt-1">
+                    <button
+                      onClick={() => setIsLeadsOpen(!isLeadsOpen)}
+                      className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                    >
+                      <div className="flex items-center">
+                        <ListFilter className="w-5 h-5 mr-3 text-slate-400" />
+                        Gestão de Leads
+                      </div>
+                      {isLeadsOpen ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                    </button>
+                    
+                    {isLeadsOpen && (
+                      <div className="ml-4 mt-1 border-l border-slate-200 pl-2 flex flex-col gap-1">
+                        <NavItem icon={<ListFilter className="w-4 h-4" />} label="Whats" active={activeComercialTab === 'lists'} onClick={() => handleTabChange('comercial', 'lists')} />
+                        <NavItem icon={<Mail className="w-4 h-4" />} label="Email Marketing" active={activeComercialTab === 'email-marketing'} onClick={() => handleTabChange('comercial', 'email-marketing')} />
+                        <NavItem icon={<MapPin className="w-4 h-4" />} label="Google Maps" active={activeComercialTab === 'google-maps'} onClick={() => handleTabChange('comercial', 'google-maps')} />
+                        <NavItem icon={<Globe className="w-4 h-4" />} label="Google Search" active={activeComercialTab === 'google-search'} onClick={() => handleTabChange('comercial', 'google-search')} />
+                        <NavItem icon={<Database className="w-4 h-4" />} label="Casa dos Dados" active={activeComercialTab === 'casa-dos-dados'} onClick={() => handleTabChange('comercial', 'casa-dos-dados')} />
+                        <NavItem icon={<ShoppingCart className="w-4 h-4" />} label="Carrinho Abandonado" active={activeComercialTab === 'carrinho-abandonado'} onClick={() => handleTabChange('comercial', 'carrinho-abandonado')} />
+                        <NavItem icon={<Magnet className="w-4 h-4" />} label="Inbound Ads" active={activeComercialTab === 'inbound-ads'} onClick={() => handleTabChange('comercial', 'inbound-ads')} />
+                        <NavItem icon={<Users className="w-4 h-4" />} label="Enviados Agentes" active={activeComercialTab === 'enviados-agentes'} onClick={() => handleTabChange('comercial', 'enviados-agentes')} />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="px-3 mt-6 mb-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Sistema</div>
                   <NavItem icon={<Settings className="w-5 h-5" />} label="Configurações" active={activeComercialTab === 'settings'} onClick={() => handleTabChange('comercial', 'settings')} />
                 </>
               )}
@@ -211,6 +289,13 @@ export default function App() {
                 <>
                   <div className="px-3 mb-2 text-xs font-semibold text-slate-400 uppercase tracking-wider mt-2 md:mt-0">Análise & Viabilidade</div>
                   <NavItem icon={<DollarSign className="w-5 h-5" />} label="Analista Financeiro" active={activeFinanceiroTab === 'financial-analyst'} onClick={() => handleTabChange('financeiro', 'financial-analyst')} />
+                </>
+              )}
+
+              {activeSector === 'rh' && (
+                <>
+                  <div className="px-3 mb-2 text-xs font-semibold text-slate-400 uppercase tracking-wider mt-2 md:mt-0">Gestão de Equipe</div>
+                  <NavItem icon={<Users className="w-5 h-5" />} label="Distribuição de Ferramentas" active={activeRHTab === 'rh-dashboard'} onClick={() => handleTabChange('rh', 'rh-dashboard')} />
                 </>
               )}
             </nav>

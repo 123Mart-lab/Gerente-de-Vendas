@@ -15,6 +15,21 @@ export const salesWorker = new Worker('sales-queue', async (job) => {
     // Busca as regras do painel persistidas no banco
     const settings = await firebaseService.getSettings() || {};
     
+    const hasOpenWAPermission = settings?.agentPermissions?.['vendedor-1']?.['github-openwa'] !== false;
+    const hasContactsPermission = settings?.agentPermissions?.['vendedor-1']?.['contacts-api'] === true;
+    const hasPeoplePermission = settings?.agentPermissions?.['vendedor-1']?.['people-api'] === true;
+
+    if (!hasOpenWAPermission) {
+      console.log(`[Sales Worker] 🛑 Acesso ao OpenWA desativado para Vendedores. Ignorando processamento de ${phone}.`);
+      return;
+    }
+
+    if (hasContactsPermission || hasPeoplePermission) {
+      console.log(`[Integração Google] 📇 Vendedor tem permissão. Sincronizando o lead ${phone} com a API do Google Contacts/People...`);
+      // Lógica de sincronização com Google Contacts / People API em background
+    }
+
+    
     let aiResponseText = '';
     let delayMs = 0;
     

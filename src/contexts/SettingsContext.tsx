@@ -45,6 +45,7 @@ export interface RulesSettings {
   warmupFriendCount: number;
   warmupCoupleEnabled: boolean;
   warmupPrompt: string;
+  agentPermissions?: Record<string, Record<string, boolean>>;
 }
 
 const defaultSettings: RulesSettings = {
@@ -63,7 +64,75 @@ const defaultSettings: RulesSettings = {
   warmupP2Days: 4, warmupP2MsgCount: 40, warmupP2IntMin: 15, warmupP2IntMax: 30,
   warmupP3Days: 7, warmupP3MsgCount: 100, warmupP3IntMin: 5, warmupP3IntMax: 15,
   warmupFamilyCount: 2, warmupFriendCount: 3, warmupCoupleEnabled: true,
-  warmupPrompt: 'Você é uma IA simulando um usuário humano do WhatsApp. Você conversará com outros números assumindo um papel específico. REGRAS GERAIS: Seja breve (1 a 3 linhas), use linguagem coloquial do dia a dia, e nunca envie links. Caso falte vendedores para algum papel, aguarde a entrada natural de novos números para assumi-los.\n\nDe acordo com seu papel na conversa, use estes temas:\n1. PARENTE (Irmão/Primo): Fale sobre família, saúde dos pais, como está o trabalho, organização de aniversários e festas/finais de semana em família.\n2. AMIGO(A) PRÓXIMO(A): Siga o gênero. Mulheres: falem sobre moda, beleza, relacionamentos, família e compras. Homens: falem sobre futebol, esportes, filmes e séries.\n3. CASAL: Fale sobre a rotina do dia, vitórias/dificuldades no trabalho, filhos, planejamento do final de semana em família e finanças/contas.\n\nAguarde sempre a resposta da outra pessoa para dar continuidade.'
+  warmupPrompt: 'Você é uma IA simulando um usuário humano do WhatsApp. Você conversará com outros números assumindo um papel específico. REGRAS GERAIS: Seja breve (1 a 3 linhas), use linguagem coloquial do dia a dia, e nunca envie links. Caso falte vendedores para algum papel, aguarde a entrada natural de novos números para assumi-los.\n\nDe acordo com seu papel na conversa, use estes temas:\n1. PARENTE (Irmão/Primo): Fale sobre família, saúde dos pais, como está o trabalho, organização de aniversários e festas/finais de semana em família.\n2. AMIGO(A) PRÓXIMO(A): Siga o gênero. Mulheres: falem sobre moda, beleza, relacionamentos, família e compras. Homens: falem sobre futebol, esportes, filmes e séries.\n3. CASAL: Fale sobre a rotina do dia, vitórias/dificuldades no trabalho, filhos, planejamento do final de semana em família e finanças/contas.\n\nAguarde sempre a resposta da outra pessoa para dar continuidade.',
+  agentPermissions: {
+    'especialista-seo': {
+      'github-open-seo': true,
+      'github-awesome-seo': true,
+      'github-neuro-copywriting': true,
+      'search-console': true,
+      'nlp': true,
+      'vision-api': true,
+      'cloud-search': true,
+    },
+    'redator': {
+      'github-neuro-copywriting': true,
+      'nlp': true,
+    },
+    'pesquisador-mercado': {
+      'github-rally-mcp': true,
+      'cloud-search': true,
+      'nlp': true,
+    },
+    'social-media': {
+      'github-rally-mcp': true,
+      'nlp': true,
+      'vision-api': true,
+      'vertex-ai': true,
+      'postmaster-tools': true,
+    },
+    'vendedor-1': {
+      'github-openwa': true,
+      'contacts-api': true,
+      'people-api': true,
+      'speech-to-text': true,
+      'calendar-api': true,
+      'translation-api': true,
+      'vertex-ai': true,
+      'places-api': true,
+      'nlp': true,
+    },
+    'vendedor-2': {
+      'github-openwa': true,
+      'contacts-api': true,
+      'people-api': true,
+      'speech-to-text': true,
+      'calendar-api': true,
+      'translation-api': true,
+      'vertex-ai': true,
+      'places-api': true,
+      'nlp': true,
+    },
+    'gerente-comercial': {
+      'github-openwa': true,
+      'contacts-api': true,
+      'people-api': true,
+      'sheets-drive': true,
+      'calendar-api': true,
+      'search-ads-360': true,
+      'nlp': true,
+    },
+    'especialista-merchant': {
+      'merchant-center': true,
+      'search-ads-360': true,
+    },
+    'analista-metricas': {
+      'ga-data': true,
+      'sheets-drive': true,
+      'search-ads-360': true,
+      'postmaster-tools': true,
+    }
+  }
 };
 
 interface SettingsContextType {

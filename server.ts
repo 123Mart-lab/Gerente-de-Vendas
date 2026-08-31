@@ -6,10 +6,14 @@ import { firebaseService } from './src/services/firebase.js';
 import { aiService } from './src/services/ai.js';
 import { openwaService } from './src/services/openwa.js';
 
-import { whatsappQueue, salesQueue, supportQueue } from './src/queue/whatsappQueue.js';
-import './src/queue/whatsappWorker.js'; // Inicia o worker de triagem
-import './src/queue/salesWorker.js';    // Inicia o worker de vendas
-import './src/queue/supportWorker.js';  // Inicia o worker de suporte
+// Importações das Filas e Workers (Comentadas temporariamente no ambiente de Sandbox 
+// para evitar erros de conexão (ECONNREFUSED) com o Redis, já que o AI Studio não possui Redis nativo)
+// import { whatsappQueue, salesQueue, supportQueue } from './src/queue/whatsappQueue.js';
+// import { mediaQueue } from './src/queue/mediaQueue.js';
+// import './src/queue/whatsappWorker.js'; // Inicia o worker de triagem
+// import './src/queue/salesWorker.js';    // Inicia o worker de vendas
+// import './src/queue/supportWorker.js';  // Inicia o worker de suporte
+// import './src/queue/mediaWorker.js';    // Inicia o worker de mídia (Diretor de Arte)
 
 const app = express();
 const PORT = 3000;
@@ -26,10 +30,10 @@ app.get('/api/stats', async (req, res) => {
     // Busca métricas do BullMQ e do Firebase (Mockado para o frontend inicial)
     res.json({
       activeWorkers: 3,
-      messagesQueued: await whatsappQueue.getWaitingCount(),
-      messagesProcessed: await whatsappQueue.getCompletedCount(),
-      salesConversations: await salesQueue.getWaitingCount() + await salesQueue.getActiveCount(),
-      supportConversations: await supportQueue.getWaitingCount() + await supportQueue.getActiveCount()
+      messagesQueued: 0, // await whatsappQueue.getWaitingCount(),
+      messagesProcessed: 0, // await whatsappQueue.getCompletedCount(),
+      salesConversations: 0, // await salesQueue.getWaitingCount() + await salesQueue.getActiveCount(),
+      supportConversations: 0 // await supportQueue.getWaitingCount() + await supportQueue.getActiveCount()
     });
   } catch (error) {
     // Retorna valores zerados se o Redis não estiver disponível para evitar crash no frontend
@@ -172,11 +176,44 @@ app.post('/webhook/openwa', async (req, res) => {
       console.log(`\n[📥 Webhook] Mensagem recebida de ${phone}. Empilhando na fila...`);
       
       // PASSO 1: Delegação Segura (Fila BullMQ)
-      await whatsappQueue.add('process-lead', { phone, text });
+      // await whatsappQueue.add('process-lead', { phone, text });
+      console.log('Fila whatsappQueue desativada no sandbox');
       
     }
   } catch (error) {
     console.error('❌ Erro Crítico no processamento do Webhook:', error);
+  }
+});
+
+
+// ==========================================
+// ROTA WEBHOOK NUVEMSHOP (Produtos)
+// ==========================================
+app.post('/webhook/nuvemshop/product', async (req, res) => {
+  // A Regra de Ouro do Webhook: Responda 200 OK IMEDIATAMENTE para a Nuvemshop
+  res.status(200).send('OK');
+
+  try {
+    const storeId = req.body.store_id;
+    const event = req.body.event; // ex: 'product/created' ou 'product/updated'
+    const productId = req.body.id;
+
+    if (!storeId || !productId) return;
+
+    if (event === 'product/created' || event === 'product/updated') {
+      console.log(`\n[🛍️ Webhook Nuvemshop] Evento ${event} recebido para Produto ${productId}. Acionando Diretor de Arte...`);
+      
+      // Delega para o Diretor de Arte em background
+      // OBS: Fila mediaQueue desativada no sandbox para evitar erros de Redis
+      // await mediaQueue.add('process-media', { 
+      //  storeId, 
+      //  productId, 
+      //  action: 'check_and_generate' 
+      // });
+      console.log(`[🛍️ Sandbox] Webhook recebido, mas fila desativada no ambiente de testes.`);
+    }
+  } catch (error) {
+    console.error('❌ Erro ao processar webhook da Nuvemshop:', error);
   }
 });
 

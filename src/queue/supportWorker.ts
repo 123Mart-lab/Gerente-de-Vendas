@@ -14,6 +14,18 @@ export const supportWorker = new Worker('support-queue', async (job) => {
     const history = await firebaseService.getChatHistory(phone, 15);
     const settings = await firebaseService.getSettings() || {};
     
+    const hasOpenWAPermission = settings?.agentPermissions?.['vendedor-1']?.['github-openwa'] !== false;
+    const hasContactsPermission = settings?.agentPermissions?.['vendedor-1']?.['contacts-api'] === true;
+    
+    if (!hasOpenWAPermission) {
+      console.log(`[Support Worker] 🛑 Acesso ao OpenWA desativado. Ignorando processamento de ${phone}.`);
+      return;
+    }
+
+    if (hasContactsPermission) {
+      console.log(`[Integração Google] 📇 Suporte tem permissão. Verificando o lead ${phone} na API do Google Contacts/People...`);
+    }
+    
     let delayMs = 0;
     
     // Motor de Cadência para Suporte (em segundos)

@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { nuvemshopService } from './nuvemshop.js';
 import { firebaseService } from './firebase.js';
-import { seoExpertPrompt } from '../prompts/seoExpert.js';
+import { buildSeoExpertPrompt } from '../prompts/seoExpert.js';
 
 // Inicializa a engine do Gemini com a API Key injetada no ambiente
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -62,7 +62,23 @@ export const aiService = {
    */
   async generateResponse(phone: string, userMessage: string, history: any[], pipelineStage: string, overridePrompt?: string) {
     // 1. Carrega as diretrizes específicas da etapa do cliente
-    const systemInstruction = overridePrompt ? overridePrompt : getSystemInstruction(pipelineStage);
+    let systemInstruction = overridePrompt ? overridePrompt : getSystemInstruction(pipelineStage);
+
+    // 1.5. Injeta as integrações ativas das APIs do Google para Vendedores
+    const settings = await firebaseService.getSettings();
+    const vendedorPerms = settings?.agentPermissions?.['vendedor-1'] || {};
+    
+    let activeIntegrations = [];
+    if (vendedorPerms['speech-to-text'] === true) activeIntegrations.push('\n[Speech-to-Text Ativo]: Você é capaz de transcrever áudios. Fale com naturalidade, simulando nuances de voz e respiração caso precise gerar um script de áudio.');
+    if (vendedorPerms['translation-api'] === true) activeIntegrations.push('\n[Cloud Translation Ativo]: Se o cliente falar em espanhol, inglês ou outro idioma, traduza instantaneamente a negociação, mantendo persuasão.');
+    if (vendedorPerms['calendar-api'] === true) activeIntegrations.push('\n[Google Calendar API Ativo]: Caso seja um fechamento de alto valor, você tem acesso à agenda corporativa e pode propor e simular o agendamento de reuniões/calls de follow-up.');
+    if (vendedorPerms['vertex-ai'] === true) activeIntegrations.push('\n[Vertex AI Prediction Ativo]: Utilize os dados de Machine Learning. Faça inferência preditiva: proponha Cross-sell avançado com produtos complementares que você deduzir fazerem sentido matemático e comportamental.');
+    if (vendedorPerms['places-api'] === true) activeIntegrations.push('\n[Places API Ativo]: Você possui inteligência logística de localização em tempo real. Se o cliente informar bairro, cep ou região, use a proximidade geográfica como gatilho mental de conveniência/entrega rápida.');
+    if (vendedorPerms['nlp'] === true) activeIntegrations.push('\n[Cloud Natural Language API Ativo]: Você possui um leitor de perfil psicológico. Analise o sentimento da mensagem do cliente em tempo real. Se ele for pragmático/urgente, seja direto e feche a venda. Se ele for emocional/inseguro, mude o tom de voz para acolhimento e foca em garantias e reversão de risco.');
+
+    if (activeIntegrations.length > 0) {
+      systemInstruction += '\n\n[FERRAMENTAS GLOBAIS DE INTELIGÊNCIA ATIVADAS PELO RH]:' + activeIntegrations.join('');
+    }
 
     // 2. Formata o histórico do Firebase para o padrão esperado pelo SDK do Gemini
     const contents: any[] = history.map((msg) => ({
@@ -124,11 +140,19 @@ export const aiService = {
     }
   },
     async runMarketResearchPipeline(links: string[], financialKnowledgeBase: any, onStepComplete?: (step: string, prompt: string, response: string) => void) {
+    const settings = await firebaseService.getSettings();
+    const hasRallyMcp = settings?.agentPermissions?.['pesquisador-mercado']?.['github-rally-mcp'] !== false;
+    const hasNlp = settings?.agentPermissions?.['pesquisador-mercado']?.['nlp'] === true;
+    const hasCloudSearch = settings?.agentPermissions?.['pesquisador-mercado']?.['cloud-search'] === true;
+
     const joinedLinks = links.join('\n');
 
     // 1. Pesquisador (Planner)
-    const plannerPrompt = `Você é um Pesquisador de Mercado. Acesse, se possível, ou analise o padrão dos seguintes links de concorrentes para um produto:
+    const plannerPrompt = `Você é um Pesquisador de Mercado${hasRallyMcp ? ' inspirado no "Rally MCP"' : ''}. Acesse, se possível, ou analise o padrão dos seguintes links de concorrentes para um produto:
 ${joinedLinks}
+
+${hasNlp ? '[INTEGRAÇÃO ATIVADA: Cloud Natural Language API]\nAnalise o sentimento das avaliações visíveis nesses links. Identifique o que o público mais odeia nesses anúncios.\n' : ''}
+${hasCloudSearch ? '[INTEGRAÇÃO ATIVADA: Cloud Search API]\nFinja varrer nossa base interna em busca de relatórios do fornecedor sobre esse produto para complementar sua pesquisa.\n' : ''}
 
 Por favor, faça um levantamento sobre:
 - Preços praticados (mínimo, máximo, médio).
@@ -194,6 +218,11 @@ Faça os cálculos de viabilidade (markup/markdown) com base nessas premissas fi
   
   async runOrchestrationPipeline(productData: any, onStepComplete?: (step: string, prompt: string, response: string) => void, saveProductCallback?: (seoJson: any) => Promise<void>) {
     
+    const settings = await firebaseService.getSettings();
+    const hasRallyMcp = settings?.agentPermissions?.['pesquisador-mercado']?.['github-rally-mcp'] !== false;
+    const hasCloudSearch = settings?.agentPermissions?.['pesquisador-mercado']?.['cloud-search'] === true;
+    const hasNlp = settings?.agentPermissions?.['pesquisador-mercado']?.['nlp'] === true;
+
     // 1. Extração de Dados Reais (Background)
     // O Gerente aciona as novas skills por debaixo dos panos para alimentar os agentes
     let realTrends = '';
@@ -209,7 +238,7 @@ Faça os cálculos de viabilidade (markup/markdown) com base nessas premissas fi
     } catch(e) { realQuotes = 'Não foi possível buscar cotações em tempo real.'; }
 
     // 1. Pesquisador (Planner + Rally MCP)
-    const plannerPrompt = `Você é um Planner e Pesquisador de Mercado focado em e-commerce, operando com a skill "Rally MCP".
+    const plannerPrompt = `Você é um Planner e Pesquisador de Mercado focado em e-commerce${hasRallyMcp ? ', operando com a skill "Rally MCP"' : ''}.
 Sua missão é analisar o produto:
 Nome: ${productData.name}
 Preço Atual da Loja: ${productData.price}
@@ -217,6 +246,9 @@ Descrição Original: ${productData.description || 'Sem descrição'}
 
 Acabamos de extrair os seguintes dados de Tendências (Mercado Livre/Shopee):
 ${realTrends}
+
+${hasCloudSearch ? '[INTEGRAÇÃO ATIVADA: Cloud Search API]\nConsidere que você vasculhou os catálogos técnicos em PDF do nosso Drive. Utilize dados técnicos profundos na sua análise.\n' : ''}
+${hasNlp ? '[INTEGRAÇÃO ATIVADA: Cloud Natural Language API]\nConsidere que você raspou avaliações reais. Extraia o "Sentimento" macro dos clientes concorrentes e detalhe explicitamente as reclamações.\n' : ''}
 
 Por favor, forneça um Relatório de Tendências e Demanda contendo:
 - O que está em alta (buscas e features valorizadas) baseando-se nos dados reais.
@@ -328,13 +360,25 @@ Sua função é criar o "Mapa Visual da Oferta" para o designer montar as imagen
   },
 
     async generateViralContent(productData: any, platform: string) {
-    const prompt = `Você é um Gestor de Social Media Especialista em Viralização e Afiliados, inspirado no "Rally MCP".
+    const settings = await firebaseService.getSettings();
+    const hasRallyMcp = settings?.agentPermissions?.['social-media']?.['github-rally-mcp'] !== false;
+    const hasNlp = settings?.agentPermissions?.['social-media']?.['nlp'] === true;
+    const hasVision = settings?.agentPermissions?.['social-media']?.['vision-api'] === true;
+    const hasVertex = settings?.agentPermissions?.['social-media']?.['vertex-ai'] === true;
+    const hasPostmaster = settings?.agentPermissions?.['social-media']?.['postmaster-tools'] === true;
+
+    let prompt = `Você é um Gestor de Social Media Especialista em Viralização e Afiliados${hasRallyMcp ? ', inspirado no "Rally MCP"' : ''}.
 Crie um roteiro viral/pacote de conteúdo para: ${platform}
 
 Produto:
 Nome: ${productData.name}
 Preço: ${productData.price}
 Descrição: ${productData.description || 'Sem descrição'}
+
+${hasNlp ? '\n[INTEGRAÇÃO ATIVADA: Cloud Natural Language API]\nAnalise o sentimento final da sua copy. Garanta que a pontuação de sentimento seja extremamente Positiva e Engajadora, corrigindo palavras neutras para termos mais emocionais e persuasivos antes de retornar o resultado final.' : ''}
+${hasVision ? '\n[INTEGRAÇÃO ATIVADA: Cloud Vision API]\nVocê tem acesso à análise de imagens (Computer Vision). No campo visualSuggestions, descreva detalhadamente takes visuais estéticos e focados em alta iluminação, contraste e que foquem nas features do produto.' : ''}
+${hasVertex ? '\n[INTEGRAÇÃO ATIVADA: Vertex AI Prediction]\nUse o algoritmo preditivo de machine learning. O seu Gancho (Hook) deve ser embasado em tendências preditivas, usando padrões que o algoritmo sabe que seguram retenção nos primeiros 3 segundos.' : ''}
+${hasPostmaster && platform.toLowerCase().includes('email') ? '\n[INTEGRAÇÃO ATIVADA: Gmail Postmaster Tools]\nVocê identificou que é um E-mail Marketing. Evite termos restritos por filtros de SPAM. Escreva um assunto e um corpo de e-mail focado em Altíssima Entregabilidade, sem promessas absurdas que ativem os filtros do Gmail.' : ''}
 
 Retorne ESTRITAMENTE um JSON puro no seguinte formato:
 {
@@ -373,7 +417,10 @@ Retorne ESTRITAMENTE um JSON puro no seguinte formato:
   },
 
   async searchMarketplaceTrends(query: string) {
-    const prompt = `Você é um Pesquisador de Tendências de Marketplaces, especialista em Mercado Livre e Shopee, utilizando inteligência "Rally MCP".
+    const settings = await firebaseService.getSettings();
+    const hasRallyMcp = settings?.agentPermissions?.['pesquisador-mercado']?.['github-rally-mcp'] !== false;
+
+    const prompt = `Você é um Pesquisador de Tendências de Marketplaces, especialista em Mercado Livre e Shopee${hasRallyMcp ? ', utilizando inteligência "Rally MCP"' : ''}.
 Aja como se tivesse acesso em tempo real às plataformas. O usuário buscou pelo termo/nicho: "${query}".
 
 Retorne ESTRITAMENTE um JSON puro no seguinte formato (invente dados realistas e coerentes com o mercado atual para fins de demonstração):
@@ -562,6 +609,10 @@ Retorne ESTRITAMENTE um JSON puro com o seguinte formato:
 
 
   async generateProductSEO(productData: any, briefing?: string) {
+    const settings = await firebaseService.getSettings();
+    const permissions = settings?.agentPermissions?.['especialista-seo'] || {};
+    const seoExpertPrompt = buildSeoExpertPrompt(permissions);
+    
     const systemInstruction = seoExpertPrompt + `\n\nRetorne ESTRITAMENTE em formato JSON puro.`;
     
     let prompt = `Analise este produto, convoque os seus Múltiplos Agentes, acesse a internet para investigar concorrentes diretos, deduza o público-alvo e gere todo o pacote de marketing. OBRIGATÓRIO: A novaDescricaoHtml DEVE usar tags HTML VÁLIDAS. SE o produto já tiver uma Marca Original cadastrada, OBRIGATORIAMENTE use a mesma marca.`;

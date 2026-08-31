@@ -44,7 +44,8 @@ export const nuvemshopService = {
         const url = p.seo_title ? `www.123mart.com.br/produtos/${p.seo_title}` : 'www.123mart.com.br';
         const price = p.variants?.[0]?.price || 'Sob consulta';
         const stock = p.variants?.[0]?.stock !== null ? p.variants?.[0]?.stock : 'Disponível';
-        return `- ${p.name?.pt || p.name} | Preço: R$ ${price} | Estoque: ${stock} | Link: ${url}`;
+        const img = p.images?.[0]?.src || 'Sem imagem';
+        return `- ${p.name?.pt || p.name} | Preço: R$ ${price} | Estoque: ${stock} | Link: ${url} | URL da Imagem: ${img}`;
       }).join('\n');
 
       return `Produtos encontrados na Nuvemshop:\n${produtosStr}\n\n(Regra: Formate esses dados de forma amigável para o cliente usando os links fornecidos).`;

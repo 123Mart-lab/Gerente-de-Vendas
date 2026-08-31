@@ -4,7 +4,7 @@ import {
   Sparkles, Tags, Megaphone, Store, Mail, Share2, Target, 
   Image as ImageIcon, Video, Menu, X, Briefcase, Search, Radar, 
   Palette, PenTool, ShoppingBag, BarChart3, DollarSign, ChevronDown, ChevronRight,
-  MapPin, Globe, Database, ShoppingCart, Magnet
+  MapPin, Globe, Database, ShoppingCart, Magnet, ShieldCheck, MessageCircle, FileText
 } from 'lucide-react';
 
 import DashboardOverview from './components/DashboardOverview';
@@ -29,16 +29,21 @@ import MetricsAnalyst from './components/publicidade/MetricsAnalyst';
 
 import FinancialAnalyst from './components/financeiro/FinancialAnalyst';
 import RHDashboard from './components/rh/RHDashboard';
+import CEOOverview from './components/CEOOverview';
+import CEOChat from './components/CEOChat';
+import CEOBriefing from './components/CEOBriefing';
 import { SettingsProvider } from './contexts/SettingsContext';
 
-type SectorType = 'comercial' | 'marketing' | 'financeiro' | 'rh';
+type SectorType = 'ceo' | 'comercial' | 'marketing' | 'financeiro' | 'rh';
+type CEOTabType = 'ceo-overview' | 'ceo-chat' | 'ceo-briefing';
 type ComercialTabType = 'dashboard' | 'sales' | 'campaigns' | 'devices' | 'lists' | 'email-marketing' | 'settings' | 'vendedor-1' | 'vendedor-2' | 'gerente-comercial' | 'enviados-agentes' | 'google-maps' | 'google-search' | 'casa-dos-dados' | 'carrinho-abandonado' | 'inbound-ads';
 type MarketingTabType = 'mkt-dashboard' | 'project-manager' | 'market-researcher' | 'competitive-intelligence' | 'art-director' | 'content-copywriter' | 'social-media' | 'ads-manager' | 'seo-specialist' | 'merchant-center' | 'metrics-analyst';
 type FinanceiroTabType = 'financial-analyst';
 type RHTabType = 'rh-dashboard';
 
 export default function App() {
-  const [activeSector, setActiveSector] = useState<SectorType>('comercial');
+  const [activeSector, setActiveSector] = useState<SectorType>('ceo');
+  const [activeCEOTab, setActiveCEOTab] = useState<CEOTabType>('ceo-overview');
   const [activeComercialTab, setActiveComercialTab] = useState<ComercialTabType>('dashboard');
   const [activeMarketingTab, setActiveMarketingTab] = useState<MarketingTabType>('mkt-dashboard');
   const [activeFinanceiroTab, setActiveFinanceiroTab] = useState<FinanceiroTabType>('financial-analyst');
@@ -48,7 +53,8 @@ export default function App() {
   const [isLeadsOpen, setIsLeadsOpen] = useState(false);
 
   const handleTabChange = (type: SectorType, tab: any) => {
-    if (type === 'comercial') setActiveComercialTab(tab);
+    if (type === 'ceo') setActiveCEOTab(tab);
+    else if (type === 'comercial') setActiveComercialTab(tab);
     else if (type === 'marketing') setActiveMarketingTab(tab);
     else if (type === 'financeiro') setActiveFinanceiroTab(tab);
     else if (type === 'rh') setActiveRHTab(tab);
@@ -56,7 +62,13 @@ export default function App() {
   };
 
   const renderContent = () => {
-    if (activeSector === 'comercial') {
+    if (activeSector === 'ceo') {
+      switch (activeCEOTab) {
+        case 'ceo-overview': return <CEOOverview />;
+        case 'ceo-chat': return <CEOChat />;
+        case 'ceo-briefing': return <CEOBriefing />;
+      }
+    } else if (activeSector === 'comercial') {
       switch (activeComercialTab) {
         case 'dashboard': return <DashboardOverview />;
         case 'sales': return <SalesRoom />;
@@ -101,7 +113,13 @@ export default function App() {
   };
 
   const renderHeaderTitle = () => {
-    if (activeSector === 'comercial') {
+    if (activeSector === 'ceo') {
+      switch (activeCEOTab) {
+        case 'ceo-overview': return 'Visão Geral Executiva';
+        case 'ceo-chat': return 'Chat: CEO';
+        case 'ceo-briefing': return 'Briefing de SKUs';
+      }
+    } else if (activeSector === 'comercial') {
       switch (activeComercialTab) {
         case 'dashboard': return 'Visão Geral do Sistema';
         case 'sales': return 'Sala de Operações: Vendedores';
@@ -156,6 +174,12 @@ export default function App() {
           
           <nav className="flex space-x-1 overflow-x-auto overflow-y-hidden no-scrollbar h-full pt-1">
             <SectorTab 
+              active={activeSector === 'ceo'} 
+              onClick={() => setActiveSector('ceo')}
+              icon={<ShieldCheck className="w-4 h-4" />}
+              label="CEO"
+            />
+            <SectorTab 
               active={activeSector === 'comercial'} 
               onClick={() => setActiveSector('comercial')}
               icon={<Store className="w-4 h-4" />}
@@ -196,6 +220,17 @@ export default function App() {
             }`}
           >
             <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
+              
+              {activeSector === 'ceo' && (
+                <>
+                  <div className="px-3 mb-2 text-xs font-semibold text-slate-400 uppercase tracking-wider mt-2 md:mt-0">Diretoria</div>
+                  <NavItem icon={<LayoutDashboard className="w-5 h-5" />} label="Visão Geral" active={activeCEOTab === 'ceo-overview'} onClick={() => handleTabChange('ceo', 'ceo-overview')} />
+                  <NavItem icon={<MessageCircle className="w-5 h-5" />} label="Chat" active={activeCEOTab === 'ceo-chat'} onClick={() => handleTabChange('ceo', 'ceo-chat')} />
+                  
+                  <div className="px-3 mt-6 mb-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Produtos e Lançamentos</div>
+                  <NavItem icon={<FileText className="w-5 h-5" />} label="Briefing de SKUs" active={activeCEOTab === 'ceo-briefing'} onClick={() => handleTabChange('ceo', 'ceo-briefing')} />
+                </>
+              )}
               
               {activeSector === 'comercial' && (
                 <>

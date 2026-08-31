@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Activity, MessageSquare, Clock, AlertTriangle, ShieldCheck, MessageCircle } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 
-export default function DashboardOverview() {
+export default function CEOOverview() {
   const { rules } = useSettings();
   const [stats, setStats] = useState({
     activeWorkers: 0,
@@ -99,7 +99,7 @@ export default function DashboardOverview() {
         </div>
       </div>
       
-      {/* Removed Communication Hub */}
+      {/* Removed Communication Hub from CEO Overview */}
     </div>
   );
 }

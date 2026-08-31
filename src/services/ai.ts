@@ -750,6 +750,10 @@ Formato obrigatório de retorno (JSON puro):
   
   async handleAgentChat(text: string, sender: string, receiver: string) {
     try {
+      // Lê as configurações e permissões
+      const settings = await firebaseService.getSettings();
+      const hasNuvemshopApi = settings?.agentPermissions?.[receiver]?.['nuvemshop-api'] === true;
+
       // Lê as personas do arquivo AGENTS.md
       let agentsPersona = '';
       try {
@@ -835,14 +839,22 @@ Exemplo: [ENCAMINHAR_PARA: pesquisador] Olá pesquisador, faça a pesquisa sobre
 
         if (response.functionCalls && response.functionCalls.length > 0) {
           // Adiciona a chamada da função ao histórico preservando todos os parts originais
-          const modelParts = response.candidates?.[0]?.content?.parts || response.functionCalls.map((c: any) => ({ functionCall: c }));
+          const modelParts: any = response.candidates?.[0]?.content?.parts || response.functionCalls.map((c: any) => ({ functionCall: c }));
           contents.push({ role: 'model', parts: modelParts });
           
           const toolResults = [];
           for (const call of response.functionCalls) {
             let result = '';
             if (call.name === 'buscarProdutosNuvemshop') {
-               result = '[SISTEMA]: API Nuvemshop acessada. Produtos encontrados: 1- Tênis Runner (URL: http://img.com/tenis.jpg), 2- Camisa Basic (URL: http://img.com/camisa.jpg). Repasse essas URLs aos especialistas.';
+               if (!hasNuvemshopApi) {
+                 result = '[SISTEMA]: Acesso Negado. Você não possui a permissão "API Nuvemshop" habilitada no painel de Recursos Humanos (RH). Informe ao usuário que você precisa dessa liberação para prosseguir.';
+               } else {
+                 try {
+                   result = await nuvemshopService.searchProducts('');
+                 } catch (e) {
+                   result = '[ERRO]: Falha ao buscar produtos reais na Nuvemshop.';
+                 }
+               }
             } else if (call.name === 'avaliarImagem') {
                result = '[SISTEMA]: Cloud Vision / AI analisou a imagem. Nota de Relevância: 9/10. Nota de SEO (Alt-tags): 7/10. Otimização necessária: adicionar descrição de contexto visual.';
             } else if (call.name === 'gerarRelatorioPDF') {

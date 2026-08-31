@@ -5,6 +5,7 @@ import express from 'express';
 import { firebaseService } from './src/services/firebase.js';
 import { aiService } from './src/services/ai.js';
 import { openwaService } from './src/services/openwa.js';
+import { generatePdf } from './src/services/pdfService.js';
 
 // Importações das Filas e Workers (Comentadas temporariamente no ambiente de Sandbox 
 // para evitar erros de conexão (ECONNREFUSED) com o Redis, já que o AI Studio não possui Redis nativo)
@@ -22,6 +23,12 @@ app.use(express.json({ limit: '50mb' }));
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', role: '123Mart Brain API' });
+});
+
+// Rota de geração de PDFs dinâmicos
+app.get('/api/marketing/pdf/:role/:sku', (req, res) => {
+  const { role, sku } = req.params;
+  generatePdf(res, role, sku);
 });
 
 // API Routes para o Dashboard

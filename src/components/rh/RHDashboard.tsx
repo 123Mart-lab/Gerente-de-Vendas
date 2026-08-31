@@ -77,6 +77,9 @@ const API_TOOLS: APITool[] = [
   { id: 'vertex-ai', name: 'AI Platform (Vertex AI)', description: 'Motor de previsão e recomendação de produtos com base no histórico.', status: 'implemented' },
   { id: 'postmaster-tools', name: 'Gmail Postmaster Tools', description: 'Monitoramento da reputação de domínio e entregabilidade de e-mails.', status: 'implemented' },
   { id: 'places-api', name: 'Places API (New)', description: 'Acesso a rotas, validação de endereços e geolocalização logística.', status: 'implemented' },
+  
+  // Lojas Virtuais & E-commerce
+  { id: 'nuvemshop-api', name: 'API Nuvemshop', description: 'Acesso ao catálogo de produtos, imagens e dados dos anúncios da Nuvemshop.', status: 'implemented' },
 ];
 
 const INITIAL_PERMISSIONS: Record<string, Record<string, boolean>> = {

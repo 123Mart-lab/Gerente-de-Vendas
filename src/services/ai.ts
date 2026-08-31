@@ -775,7 +775,14 @@ A mensagem recebida foi:
 "${text}"
 
 Por favor, responda a esta mensagem. Mantenha a atitude da sua persona, e caso a ordem fuja do seu escopo, negue educadamente ou direcione ao agente correto.
-Responda diretamente, sem aspas e sem cabeçalhos, apenas o texto da sua resposta. Se você for o Gerente de Projetos e a ordem for para outro agente, aja de acordo enviando a instrução para o próximo agente (informe na mensagem que você vai cobrar o próximo agente).`;
+Responda diretamente, sem aspas e sem cabeçalhos, apenas o texto da sua resposta. Se você for o Gerente de Projetos e a ordem for para outro agente, aja de acordo enviando a instrução para o próximo agente (informe na mensagem que você vai cobrar o próximo agente).
+
+[IMPORTANTE - REPASSE DE MENSAGENS]:
+Se você (como Gerente de Projetos ou qualquer outro agente) precisar acionar outro agente da equipe, você DEVE gerar na sua resposta a tag de encaminhamento. 
+O sistema de backend interceptará essa tag e enviará a mensagem ao outro agente.
+Formato exato e obrigatório da tag (coloque isso no final da sua resposta):
+[ENCAMINHAR_PARA: id_do_agente] Mensagem que você quer enviar para ele...
+Exemplo: [ENCAMINHAR_PARA: pesquisador] Olá pesquisador, faça a pesquisa sobre X.`;
 
       const response = await ai.models.generateContent({
         model: 'gemini-3.7-flash',
@@ -785,7 +792,29 @@ Responda diretamente, sem aspas e sem cabeçalhos, apenas o texto da sua respost
         }
       });
 
-      const aiText = response.text || 'Entendido. Estou trabalhando nisso.';
+      let aiText = response.text || 'Entendido. Estou trabalhando nisso.';
+      
+      // Verifica se o agente solicitou um encaminhamento
+      const forwardMatch = aiText.match(/\[ENCAMINHAR_PARA:\s*([^\]]+)\](.*)/s);
+      
+      if (forwardMatch) {
+        const nextAgentId = forwardMatch[1].trim();
+        const messageToNextAgent = forwardMatch[2].trim();
+        
+        // Remove a tag da resposta original que vai para o usuário
+        aiText = aiText.replace(/\[ENCAMINHAR_PARA:\s*[^\]]+\].*/s, '').trim();
+        
+        // Dispara assincronamente a mensagem do agente atual para o próximo agente
+        setTimeout(async () => {
+          try {
+            await firebaseService.saveAgentChatMessage(messageToNextAgent, receiver, nextAgentId);
+            // Simula o próximo agente recebendo e respondendo
+            await aiService.handleAgentChat(messageToNextAgent, receiver, nextAgentId);
+          } catch (e) {
+            console.error('Erro no encaminhamento de mensagem', e);
+          }
+        }, 1000);
+      }
       
       // Salva a resposta gerada pelo AI no banco de dados como se fosse o receiver falando para o sender
       await firebaseService.saveAgentChatMessage(aiText, receiver, sender);

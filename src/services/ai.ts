@@ -780,6 +780,7 @@ Responda diretamente, sem aspas e sem cabeçalhos, apenas o texto da sua respost
 [IMPORTANTE - REPASSE DE MENSAGENS]:
 Se você (como Gerente de Projetos ou qualquer outro agente) precisar acionar outro agente da equipe, você DEVE gerar na sua resposta a tag de encaminhamento. 
 O sistema de backend interceptará essa tag e enviará a mensagem ao outro agente.
+Aqui estão os IDs oficiais dos agentes que você pode usar: diretoria, gerente, pesquisador, seo, monitor, art, copywriter, social, ads, merchant, metrics, finance.
 Formato exato e obrigatório da tag (coloque isso no final da sua resposta):
 [ENCAMINHAR_PARA: id_do_agente] Mensagem que você quer enviar para ele...
 Exemplo: [ENCAMINHAR_PARA: pesquisador] Olá pesquisador, faça a pesquisa sobre X.`;

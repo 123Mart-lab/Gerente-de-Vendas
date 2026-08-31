@@ -22,9 +22,9 @@ function getDb() {
     console.log('🔥 Firebase Admin SDK Inicializado com Sucesso.');
   }
   
-  // Apontando para o banco (padrão ou configurado)
-  const dbId = process.env.FIREBASE_DATABASE_ID || '(default)';
-  dbInstance = getFirestore(dbId !== '(default)' ? dbId : undefined);
+  // Apontando para o banco customizado ou via variável de ambiente
+  const defaultDbId = process.env.FIREBASE_DATABASE_ID || 'ai-studio-123martbot-19f3e99a-8216-4025-87f9-5c4fa761b2df';
+  dbInstance = getFirestore(defaultDbId !== '(default)' ? defaultDbId : undefined);
   return dbInstance;
 }
 

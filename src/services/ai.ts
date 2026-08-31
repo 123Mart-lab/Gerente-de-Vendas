@@ -748,6 +748,53 @@ Formato obrigatório de retorno (JSON puro):
     }
   },
   
+  async handleAgentChat(text: string, sender: string, receiver: string) {
+    try {
+      // Lê as personas do arquivo AGENTS.md
+      let agentsPersona = '';
+      try {
+        const agentsPath = path.join(process.cwd(), 'AGENTS.md');
+        if (fs.existsSync(agentsPath)) {
+          agentsPersona = fs.readFileSync(agentsPath, 'utf8');
+        }
+      } catch (err) {
+        console.error('Erro ao ler AGENTS.md', err);
+      }
+
+      // Constrói o contexto para o Gemini
+      const prompt = `Você faz parte de uma equipe de Agentes de Inteligência Artificial da empresa 123Mart.
+Abaixo está o manual de personas da equipe:
+---
+${agentsPersona}
+---
+
+O seu ID de agente é: "${receiver}". Assuma a persona, a atitude e as ferramentas correspondentes ao seu ID. 
+Você acabou de receber uma mensagem do agente/usuário de ID: "${sender}".
+
+A mensagem recebida foi:
+"${text}"
+
+Por favor, responda a esta mensagem. Mantenha a atitude da sua persona, e caso a ordem fuja do seu escopo, negue educadamente ou direcione ao agente correto.
+Responda diretamente, sem aspas e sem cabeçalhos, apenas o texto da sua resposta. Se você for o Gerente de Projetos e a ordem for para outro agente, aja de acordo enviando a instrução para o próximo agente (informe na mensagem que você vai cobrar o próximo agente).`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.7-flash',
+        contents: prompt,
+        config: {
+          temperature: 0.7,
+        }
+      });
+
+      const aiText = response.text || 'Entendido. Estou trabalhando nisso.';
+      
+      // Salva a resposta gerada pelo AI no banco de dados como se fosse o receiver falando para o sender
+      await firebaseService.saveAgentChatMessage(aiText, receiver, sender);
+    } catch (err) {
+      console.error('Erro ao gerar resposta do agente:', err);
+      await firebaseService.saveAgentChatMessage("Desculpe, tive um problema de comunicação interno e não consegui processar a mensagem.", receiver, sender);
+    }
+  },
+
   async generateText(prompt: string) {
     const res = await ai.models.generateContent({
       model: 'gemini-3.7-flash',

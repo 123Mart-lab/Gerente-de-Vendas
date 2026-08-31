@@ -344,6 +344,13 @@ app.get('/api/marketing/agent-chats', async (req, res) => {
 app.post('/api/marketing/agent-chats', async (req, res) => {
   const { text, sender, receiver } = req.body;
   const newMsg = await firebaseService.saveAgentChatMessage(text, sender, receiver);
+  
+  // Se a mensagem não for para o diretor (usuário humano), dispara o agente de IA para processá-la e responder
+  if (receiver !== 'diretoria') {
+    // Roda em background para não travar o frontend
+    aiService.handleAgentChat(text, sender, receiver).catch(e => console.error(e));
+  }
+  
   res.json({ success: true, message: newMsg });
 });
 

@@ -1,5 +1,6 @@
 import React from 'react';
 import { BarChart3 } from 'lucide-react';
+import AgentWhatsApp from '../chat/AgentWhatsApp';
 
 export default function MetricsAnalyst() {
   return (
@@ -23,6 +24,10 @@ export default function MetricsAnalyst() {
               className="w-full h-32 p-3 border border-slate-200 rounded-md text-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500 bg-white"
               placeholder="Ex: Você é um Analista de BI Sênior. Sua função é observar grandes volumes de dados de campanhas..."
             />
+          </div>
+          <div className="mt-8 border-t border-slate-100 pt-6">
+            <h3 className="text-lg font-bold text-slate-800 mb-4">Comunicação da Equipe</h3>
+            <AgentWhatsApp currentAgentId="metrics" currentAgentName="Analista de Métricas (BI)" />
           </div>
         </div>
       </div>

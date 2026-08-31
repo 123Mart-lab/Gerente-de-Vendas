@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { Target, Search, Activity, CheckCircle2, TrendingUp, Layers, MousePointerClick, DollarSign, Package } from 'lucide-react';
+import AgentWhatsApp from '../chat/AgentWhatsApp';
 
 export default function AdsManager() {
   const [searchTerm, setSearchTerm] = useState('');
@@ -238,6 +239,11 @@ export default function AdsManager() {
             </div>
           </div>
         )}
+
+        <div className="mt-8 border-t border-slate-100 pt-6">
+          <h3 className="text-lg font-bold text-slate-800 mb-4">Comunicação da Equipe</h3>
+          <AgentWhatsApp currentAgentId="ads" currentAgentName="Especialista em Ads" />
+        </div>
       </div>
     </div>
   );

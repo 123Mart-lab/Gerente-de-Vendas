@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ShoppingBag, Search } from 'lucide-react';
 import GoogleDataConnect from './GoogleDataConnect';
+import AgentWhatsApp from '../chat/AgentWhatsApp';
 
 export default function MerchantCenterSpecialist() {
   const [activeTab, setActiveTab] = useState<'info' | 'google'>('info');
@@ -64,6 +65,11 @@ export default function MerchantCenterSpecialist() {
           {activeTab === 'google' && (
             <GoogleDataConnect />
           )}
+
+          <div className="mt-8 border-t border-slate-100 pt-6">
+            <h3 className="text-lg font-bold text-slate-800 mb-4">Comunicação da Equipe</h3>
+            <AgentWhatsApp currentAgentId="merchant" currentAgentName="Especialista Merchant Center" />
+          </div>
         </div>
       </div>
     </div>

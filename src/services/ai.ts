@@ -746,5 +746,13 @@ Formato obrigatório de retorno (JSON puro):
       }
       throw err;
     }
+  },
+  
+  async generateText(prompt: string) {
+    const res = await ai.models.generateContent({
+      model: 'gemini-3.7-flash',
+      contents: [{ role: 'user', parts: [{ text: prompt }] }]
+    });
+    return res.text;
   }
 };

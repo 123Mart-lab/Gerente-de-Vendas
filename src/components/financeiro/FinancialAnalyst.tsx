@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { DollarSign } from 'lucide-react';
 import TaskAuditPanel, { AuditTask } from '../publicidade/TaskAuditPanel';
+import AgentWhatsApp from '../chat/AgentWhatsApp';
 
 export default function FinancialAnalyst() {
   const [mockHistory, setMockHistory] = useState<AuditTask[]>([]);
@@ -42,6 +43,11 @@ export default function FinancialAnalyst() {
           </ul>
 
           <TaskAuditPanel mockTasks={mockHistory} />
+        </div>
+        
+        <div className="mt-8 border-t border-slate-100 pt-6">
+          <h3 className="text-lg font-bold text-slate-800 mb-4">Comunicação da Equipe</h3>
+          <AgentWhatsApp currentAgentId="finance" currentAgentName="Analista Financeiro" />
         </div>
       </div>
     </div>

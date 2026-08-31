@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { Share2, Sparkles, Video, MessageCircle, Send, FileText, ChevronDown, Activity, CheckCircle2, Search } from 'lucide-react';
+import AgentWhatsApp from '../chat/AgentWhatsApp';
 
 export default function SocialMedia() {
   const [searchTerm, setSearchTerm] = useState('');
@@ -196,6 +197,11 @@ export default function SocialMedia() {
             </div>
           </div>
         )}
+
+        <div className="mt-8 border-t border-slate-100 pt-6">
+          <h3 className="text-lg font-bold text-slate-800 mb-4">Comunicação da Equipe</h3>
+          <AgentWhatsApp currentAgentId="social" currentAgentName="Gestor de Social Media" />
+        </div>
       </div>
     </div>
   );

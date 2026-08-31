@@ -4,6 +4,7 @@ import { Sparkles, Tags } from 'lucide-react';
 import ProductOptimizer from './ProductOptimizer';
 import CategorySEO from './CategorySEO';
 import TaskAuditPanel, { AuditTask } from '../publicidade/TaskAuditPanel';
+import AgentWhatsApp from '../chat/AgentWhatsApp';
 
 export default function SeoSpecialist() {
   const [activeTab, setActiveTab] = useState<'products' | 'categories'>('products');
@@ -79,6 +80,11 @@ export default function SeoSpecialist() {
       <div className="mt-6">
         {activeTab === 'products' && <ProductOptimizer />}
         {activeTab === 'categories' && <CategorySEO />}
+      </div>
+      
+      <div className="mt-8 border-t border-slate-100 pt-6">
+        <h3 className="text-lg font-bold text-slate-800 mb-4">Comunicação da Equipe</h3>
+        <AgentWhatsApp currentAgentId="seo" currentAgentName="Especialista SEO" />
       </div>
     </div>
   );

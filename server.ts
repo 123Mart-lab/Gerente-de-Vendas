@@ -324,7 +324,7 @@ app.get('/api/marketing/seo-filters', (req, res) => {
 
 
 app.get('/api/marketing/audit-logs', (req, res) => {
-  res.json(globalAuditTasks);
+  res.json([...globalAuditTasks].reverse());
 });
 
 app.post('/api/marketing/audit-logs', (req, res) => {
@@ -334,6 +334,17 @@ app.post('/api/marketing/audit-logs', (req, res) => {
   } else {
     res.status(400).json({ error: 'Task is required' });
   }
+});
+
+app.get('/api/marketing/agent-chats', async (req, res) => {
+  const chats = await firebaseService.getAgentChatHistory();
+  res.json(chats);
+});
+
+app.post('/api/marketing/agent-chats', async (req, res) => {
+  const { text, sender, receiver } = req.body;
+  const newMsg = await firebaseService.saveAgentChatMessage(text, sender, receiver);
+  res.json({ success: true, message: newMsg });
 });
 
 
@@ -774,6 +785,197 @@ app.post('/api/marketing/save', async (req, res) => {
   } catch (err: any) {
     console.error('Erro no /api/marketing/save:', err?.response?.data || err.message);
     res.status(500).json({ error: 'Erro ao salvar produto na Nuvemshop' });
+  }
+});
+
+// Endpoint para o Chat do Gerente de Projetos
+app.post('/api/marketing/chat-gerente', async (req, res) => {
+  try {
+    const { message, history } = req.body;
+    
+    // Constrói o prompt para o gerente
+    const sysPrompt = `Você é o Gerente de Projetos da 123Mart. Sua função é orquestrar a esteira de otimização de produtos e distribuição de tarefas. Você não executa o trabalho operacional (não escreve textos SEO finais, não desenha imagens). Você delega as tarefas e envia o briefing executivo para a equipe.
+Aja de forma executiva, estratégica e direta.
+Se o usuário pedir para fazer algo, diga como você vai orquestrar ou quem você vai acionar. Reporte a conclusão de forma macro.
+
+CRÍTICO: AUTOMAÇÃO COMPLETA. Você agora tem autoridade para DISPARAR as pipelines de produção no background de forma 100% autônoma.
+Sempre que o usuário der uma ordem para iniciar uma Otimização de Anúncios (SEO) ou uma Pesquisa de Mercado, você É OBRIGADO a retornar no final da sua mensagem um bloco JSON encapsulado EXATAMENTE na tag <EXECUTE>, como nos exemplos abaixo. SE VOCÊ NÃO INCLUIR A TAG <EXECUTE>, A EQUIPE NÃO VAI TRABALHAR.
+
+Para Pesquisa de Mercado (concorrência, viabilidade, rankeamento):
+<EXECUTE>
+{
+  "action": "run_market_research",
+  "links": ["https://exemplo1.com"] 
+}
+</EXECUTE>
+
+Para Otimização de Anúncios / SEO / Melhoria de Produto:
+<EXECUTE>
+{
+  "action": "run_optimization",
+  "product_name": "Nome do Produto",
+  "product_id": "0" 
+}
+</EXECUTE>
+
+Extraia as URLs e nomes de produtos da conversa. Se não houver, crie exemplos genéricos.
+Responda sucintamente avisando que disparou a força-tarefa no background e que os logs aparecerão na aba correta. OBRIGATÓRIO: A última coisa na sua resposta DEVE SER o bloco <EXECUTE>...<\/EXECUTE>!
+
+Histórico da conversa:
+${history.map((h: any) => `${h.role === 'user' ? 'Usuário' : 'Gerente'}: ${h.text}`).join('\n')}
+
+Nova mensagem do Usuário: ${message}`;
+
+    try {
+      let responseText = await aiService.generateText(sysPrompt);
+      
+      // Parse execution commands
+      let actionToRun = null;
+      let actionPayload: any = null;
+      
+      const executeMatch = responseText.match(/<EXECUTE>\s*([\s\S]*?)\s*<\/EXECUTE>/);
+      if (executeMatch) {
+        try {
+          const jsonCmd = JSON.parse(executeMatch[1]);
+          actionToRun = jsonCmd.action;
+          actionPayload = jsonCmd;
+          // Remover o bloco JSON da resposta enviada para o front-end
+          responseText = responseText.replace(/<EXECUTE>\s*([\s\S]*?)\s*<\/EXECUTE>/, '').trim();
+        } catch (e) {
+          console.error('Failed to parse EXECUTE JSON', e);
+        }
+      }
+
+      // Dispara a pipeline em background sem travar o request
+      if (actionToRun === 'run_market_research') {
+        const links = actionPayload.links || ['https://produto.concorrente.exemplo.com/1'];
+        const dateStr = new Date().toLocaleString('pt-BR');
+        
+        const pendingTaskId = `task-pending-${Date.now()}`;
+        globalAuditTasks.push({
+            id: pendingTaskId,
+            date: dateStr,
+            productName: 'Pesquisa de Viabilidade (Múltiplos Links)',
+            receivedPrompt: 'Ordem recebida da Gerência. Iniciando varredura de mercado em background...',
+            sentResponse: 'Aguardando processamento e resposta dos Agentes. Isso pode levar alguns segundos...',
+            status: 'pending',
+            role: 'planner',
+            requestingSector: 'Gerente de Projetos',
+            executingSector: 'Pesquisador de Mercado',
+            oldScore: 0,
+            newScore: 0,
+            evolutionPercentage: 0
+        });
+
+        aiService.runMarketResearchPipeline(links, {}, (step, prompt, response) => {
+          let req = 'Gerente de Projetos';
+          let exe = 'Pesquisador de Mercado';
+          if (step === 'monitor') { req = 'Pesquisador'; exe = 'Monitor'; }
+          else if (step === 'finance') { req = 'Monitor'; exe = 'Analista Financeiro'; }
+          
+          // Remove a tarefa pendente inicial se existir
+          const pIdx = globalAuditTasks.findIndex((t: any) => t.id === pendingTaskId);
+          if (pIdx > -1) globalAuditTasks.splice(pIdx, 1);
+
+          globalAuditTasks.push({
+            id: `task-${step}-${Date.now()}`,
+            date: dateStr,
+            productName: 'Pesquisa de Viabilidade (Múltiplos Links)',
+            receivedPrompt: prompt,
+            sentResponse: response,
+            status: 'completed',
+            role: step,
+            requestingSector: req,
+            executingSector: exe,
+            oldScore: 0,
+            newScore: 100,
+            evolutionPercentage: 100
+          });
+        }).catch((e: any) => {
+           console.error('Background market research failed', e);
+           const pIdx = globalAuditTasks.findIndex((t: any) => t.id === pendingTaskId);
+           if (pIdx > -1) {
+             globalAuditTasks[pIdx].status = 'completed';
+             globalAuditTasks[pIdx].sentResponse = `Falha na execução: ${e.message}`;
+           }
+        });
+      } else if (actionToRun === 'run_optimization') {
+        const productData = {
+          id: actionPayload.product_id || "0",
+          name: actionPayload.product_name || "Produto Genérico",
+          description: "Produto em otimização automatizada pela gerência."
+        };
+        const dateStr = new Date().toLocaleString('pt-BR');
+
+        const pendingTaskId = `task-pending-${Date.now()}`;
+        globalAuditTasks.push({
+            id: pendingTaskId,
+            date: dateStr,
+            productName: productData.name,
+            receivedPrompt: 'Ordem recebida da Gerência. Iniciando esteira de otimização SEO e Design em background...',
+            sentResponse: 'Aguardando processamento e resposta dos Agentes. Isso pode levar alguns segundos...',
+            status: 'pending',
+            role: 'planner',
+            requestingSector: 'Gerente de Projetos',
+            executingSector: 'Especialista SEO',
+            oldScore: 0,
+            newScore: 0,
+            evolutionPercentage: 0
+        });
+
+        aiService.runOrchestrationPipeline(productData, (step, prompt, response) => {
+          let req = 'Gerente de Projetos';
+          let exe = 'Profissional';
+          if (step === 'planner') { exe = 'Pesquisador de Mercado'; }
+          else if (step === 'monitor') { exe = 'Monitor de Concorrência'; }
+          else if (step === 'manager') { exe = 'Gerente de Projetos'; }
+          else if (step === 'seo') { exe = 'Especialista SEO'; }
+          else if (step === 'art') { exe = 'Diretor de Arte'; }
+          
+          // Remove a tarefa pendente inicial se existir
+          const pIdx = globalAuditTasks.findIndex((t: any) => t.id === pendingTaskId);
+          if (pIdx > -1) globalAuditTasks.splice(pIdx, 1);
+
+          globalAuditTasks.push({
+            id: `task-${step}-${Date.now()}`,
+            date: dateStr,
+            productName: productData.name,
+            receivedPrompt: prompt,
+            sentResponse: response,
+            status: 'completed',
+            role: step,
+            requestingSector: req,
+            executingSector: exe,
+            oldScore: 0,
+            newScore: 100,
+            evolutionPercentage: 100
+          });
+        }, async () => {}).catch((e: any) => {
+           console.error('Background optimization failed', e);
+           const pIdx = globalAuditTasks.findIndex((t: any) => t.id === pendingTaskId);
+           if (pIdx > -1) {
+             globalAuditTasks[pIdx].status = 'completed';
+             globalAuditTasks[pIdx].sentResponse = `Falha na execução: ${e.message}`;
+           }
+        });
+      }
+
+      return res.json({ success: true, response: responseText });
+    } catch (apiError: any) {
+      console.error('Erro na API do Gemini:', apiError.message);
+      // Fallback response for when the API hits quota limits
+      const fallbackResponse = `Entendido. Como estou operando em modo de contigência (limite de requisições/cota da API atingido), vou detalhar meu plano de ação padrão: 
+
+1. **Especialista SEO**: Solicitarei uma auditoria do nosso ranqueamento atual e mapeamento de palavras-chave estratégicas.
+2. **Pesquisador de Mercado**: Vou instruí-lo a levantar os concorrentes diretos que estão roubando nosso tráfego orgânico.
+3. **Analista de Métricas**: Pedirei o cruzamento desses dados com as nossas taxas de conversão no GA4.
+
+Assim que a cota da API for restabelecida, orquestrarei isso em tempo real. Como deseja prosseguir com os dados parciais?`;
+      return res.json({ success: true, response: fallbackResponse });
+    }
+  } catch (error: any) {
+    console.error('Erro no chat-gerente:', error.message);
+    res.status(500).json({ error: 'Falha ao processar mensagem do gerente.' });
   }
 });
 

@@ -1,10 +1,34 @@
 import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
-import { Briefcase, Search, Sparkles, Plus, ArrowRight, CheckCircle2, Upload, File, X, Image as ImageIcon, DollarSign, Play, StopCircle, RefreshCw } from 'lucide-react';
+import { Briefcase, Search, Sparkles, Plus, ArrowRight, CheckCircle2, Upload, File, X, Image as ImageIcon, DollarSign, Play, StopCircle, RefreshCw, MessageSquare, Send, Bot, User } from 'lucide-react';
 import TaskAuditPanel, { AuditTask } from './TaskAuditPanel';
+import AgentWhatsApp from '../chat/AgentWhatsApp';
 
 export default function ProjectManager() {
-  const [activeTab, setActiveTab] = useState<'otimizacao' | 'pesquisa'>('otimizacao');
+  const [activeTab, setActiveTab] = useState<'otimizacao' | 'pesquisa' | 'chat'>('otimizacao');
+  
+  // Persist chat state across tab switches and component unmounts
+  const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'agent', text: string, timestamp: string }[]>(() => {
+    const saved = localStorage.getItem('123mart_gerente_chat');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        // ignore
+      }
+    }
+    return [
+      {
+        role: 'agent',
+        text: 'Olá. Sou o Gerente de Projetos. Como posso orquestrar as demandas da equipe hoje? Qual produto ou pesquisa precisamos iniciar?',
+        timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+      }
+    ];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('123mart_gerente_chat', JSON.stringify(chatMessages));
+  }, [chatMessages]);
 
   return (
     <div className="space-y-6">
@@ -48,11 +72,24 @@ export default function ProjectManager() {
             <Search className="w-4 h-4" />
             Pesquisa de Mercado
           </button>
+          <button
+            onClick={() => setActiveTab('chat')}
+            className={`whitespace-nowrap pb-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors ${
+              activeTab === 'chat'
+                ? 'border-sky-500 text-sky-600'
+                : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+            }`}
+          >
+            <MessageSquare className="w-4 h-4" />
+            Comunicação Direta
+          </button>
         </nav>
       </div>
 
       <div className="mt-6">
-        {activeTab === 'otimizacao' ? <OtimizacaoAnuncios /> : <PesquisaMercado />}
+        {activeTab === 'otimizacao' && <OtimizacaoAnuncios />}
+        {activeTab === 'pesquisa' && <PesquisaMercado />}
+        {activeTab === 'chat' && <ChatDireto messages={chatMessages} setMessages={setChatMessages} />}
       </div>
     </div>
   );
@@ -380,35 +417,9 @@ function OtimizacaoAnuncios() {
           </button>
         </div>
 
-        {/* Workflow Visualization */}
+        {/* Communication and Workflow WhatsApp UI */}
         <div className="mt-8 border-t border-slate-100 pt-6">
-          <h4 className="font-semibold text-slate-700 mb-4">Status da Fila de Trabalho</h4>
-          <div className="flex items-center justify-between max-w-3xl mx-auto">
-            
-            <WorkflowStep 
-              title="Pesquisador de Mercado" 
-              status={progress > 0 ? 'done' : (isRunning && progress === 0 ? 'active' : 'idle')} 
-            />
-            <ArrowRight className={`w-5 h-5 ${progress >= 1 ? 'text-sky-500' : 'text-slate-300'}`} />
-            
-            <WorkflowStep 
-              title="Monitor de Concorrência" 
-              status={progress > 1 ? 'done' : (isRunning && progress === 1 ? 'active' : 'idle')} 
-            />
-            <ArrowRight className={`w-5 h-5 ${progress >= 2 ? 'text-sky-500' : 'text-slate-300'}`} />
-            
-            <WorkflowStep 
-              title="Especialista SEO" 
-              status={progress > 2 ? 'done' : (isRunning && progress === 2 ? 'active' : 'idle')} 
-            />
-            <ArrowRight className={`w-5 h-5 ${progress >= 3 ? 'text-sky-500' : 'text-slate-300'}`} />
-            
-            <WorkflowStep 
-              title="Diretor de Arte" 
-              status={progress >= 4 ? 'done' : (isRunning && progress === 3 ? 'active' : 'idle')} 
-            />
-
-          </div>
+          <AgentWhatsApp currentAgentId="gerente" currentAgentName="Gerente de Projetos" />
         </div>
 
         {/* Audit Panel (Global for Orchestration) */}
@@ -632,29 +643,9 @@ function PesquisaMercado() {
           </button>
         </div>
 
-        {/* Workflow Visualization */}
+        {/* Communication and Workflow WhatsApp UI */}
         <div className="mt-8 border-t border-slate-100 pt-6">
-          <h4 className="font-semibold text-slate-700 mb-4">Status da Fila de Trabalho</h4>
-          <div className="flex items-center justify-between max-w-2xl mx-auto">
-            
-            <WorkflowStep 
-              title="Pesquisador de Mercado" 
-              status={progress > 0 ? 'done' : (isRunning && progress === 0 ? 'active' : 'idle')} 
-            />
-            <ArrowRight className={`w-5 h-5 ${progress >= 1 ? 'text-sky-500' : 'text-slate-300'}`} />
-            
-            <WorkflowStep 
-              title="Monitor de Concorrência" 
-              status={progress > 1 ? 'done' : (isRunning && progress === 1 ? 'active' : 'idle')} 
-            />
-            <ArrowRight className={`w-5 h-5 ${progress >= 2 ? 'text-sky-500' : 'text-slate-300'}`} />
-            
-            <WorkflowStep 
-              title="Analista Financeiro" 
-              status={progress >= 3 ? 'done' : (isRunning && progress === 2 ? 'active' : 'idle')} 
-            />
-
-          </div>
+          <AgentWhatsApp currentAgentId="gerente" currentAgentName="Gerente de Projetos" />
         </div>
 
         {/* Audit Panel (Pesquisa) */}
@@ -681,6 +672,163 @@ function WorkflowStep({ title, status }: { title: string, status: 'idle' | 'acti
       }`}>
         {title}
       </span>
+    </div>
+  );
+}
+
+function ChatDireto({ messages, setMessages }: { 
+  messages: { role: 'user' | 'agent', text: string, timestamp: string }[], 
+  setMessages: React.Dispatch<React.SetStateAction<{ role: 'user' | 'agent', text: string, timestamp: string }[]>> 
+}) {
+  const [inputMessage, setInputMessage] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [chatHistory, setChatHistory] = useState<AuditTask[]>([]);
+  const endOfMessagesRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    endOfMessagesRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages.length]);
+
+  useEffect(() => {
+    const fetchLogs = async () => {
+      try {
+        const res = await axios.get('/api/marketing/audit-logs');
+        if (res.data && Array.isArray(res.data)) {
+          // Show all tasks in the manager's view, since the manager orchestrates everything
+          setChatHistory(res.data);
+        }
+      } catch (err) {
+        console.error('Erro ao buscar logs', err);
+      }
+    };
+    fetchLogs();
+    
+    // Auto refresh
+    const interval = setInterval(fetchLogs, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inputMessage.trim() || isLoading) return;
+
+    const userMessage = inputMessage.trim();
+    setInputMessage('');
+    
+    const newMessages = [
+      ...messages,
+      { role: 'user' as const, text: userMessage, timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) }
+    ];
+    setMessages(newMessages);
+    setIsLoading(true);
+
+    try {
+      const res = await axios.post('/api/marketing/chat-gerente', {
+        message: userMessage,
+        history: messages
+      });
+      
+      setMessages([
+        ...newMessages,
+        {
+          role: 'agent',
+          text: res.data.response || 'Erro ao processar resposta.',
+          timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+        }
+      ]);
+    } catch (err) {
+      console.error(err);
+      setMessages([
+        ...newMessages,
+        {
+          role: 'agent',
+          text: 'Ocorreu um erro ao me comunicar com o servidor. Verifique os logs.',
+          timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+        }
+      ]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-8">
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-0 flex flex-col h-[600px]">
+        <div className="p-4 border-b border-slate-200 bg-slate-50 rounded-t-xl flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-sky-100 rounded-full flex items-center justify-center text-sky-600">
+              <Briefcase className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-slate-800">Gerente de Projetos</h3>
+              <p className="text-xs text-slate-500 flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                Online e aguardando ordens
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/50">
+          {messages.map((msg, idx) => (
+            <div key={idx} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+                msg.role === 'user' ? 'bg-slate-800 text-white' : 'bg-sky-100 text-sky-600'
+              }`}>
+                {msg.role === 'user' ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
+              </div>
+              
+              <div className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} max-w-[75%]`}>
+                <div className={`p-3 rounded-2xl ${
+                  msg.role === 'user' 
+                    ? 'bg-slate-800 text-white rounded-tr-sm' 
+                    : 'bg-white border border-slate-200 text-slate-700 rounded-tl-sm shadow-sm'
+                }`}>
+                  <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.text}</p>
+                </div>
+                <span className="text-[10px] text-slate-400 mt-1 px-1">{msg.timestamp}</span>
+              </div>
+            </div>
+          ))}
+          {isLoading && (
+            <div className="flex gap-3 flex-row">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 bg-sky-100 text-sky-600">
+                <Bot className="w-4 h-4" />
+              </div>
+              <div className="p-4 rounded-2xl bg-white border border-slate-200 text-slate-700 rounded-tl-sm shadow-sm flex items-center gap-2">
+                <div className="w-2 h-2 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                <div className="w-2 h-2 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                <div className="w-2 h-2 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+              </div>
+            </div>
+          )}
+          <div ref={endOfMessagesRef} />
+        </div>
+
+        <div className="p-4 border-t border-slate-200 bg-white rounded-b-xl">
+          <form onSubmit={handleSendMessage} className="flex gap-3">
+            <input
+              type="text"
+              value={inputMessage}
+              onChange={(e) => setInputMessage(e.target.value)}
+              placeholder="Digite uma ordem para o Gerente de Projetos..."
+              className="flex-1 bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-xl focus:ring-sky-500 focus:border-sky-500 p-3"
+              disabled={isLoading}
+            />
+            <button
+              type="submit"
+              disabled={!inputMessage.trim() || isLoading}
+              className="px-5 bg-sky-600 text-white font-medium rounded-xl hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center transition-colors shadow-sm"
+            >
+              <Send className="w-5 h-5" />
+            </button>
+          </form>
+        </div>
+      </div>
+      <div>
+        <h3 className="font-semibold text-slate-800 mb-4 text-lg">Últimas Atividades Orquestradas</h3>
+        <TaskAuditPanel mockTasks={chatHistory} />
+      </div>
     </div>
   );
 }

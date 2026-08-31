@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Search, TrendingUp, ShoppingCart, Info, Activity } from 'lucide-react';
 import TaskAuditPanel, { AuditTask } from './TaskAuditPanel';
+import AgentWhatsApp from '../chat/AgentWhatsApp';
 
 export default function MarketResearcher() {
   const [mockHistory, setMockHistory] = useState<AuditTask[]>([]);
@@ -120,7 +121,12 @@ export default function MarketResearcher() {
           )}
         </div>
         
-        <div className="mt-8">
+        <div className="mt-8 border-t border-slate-100 pt-6">
+          <h3 className="text-lg font-bold text-slate-800 mb-4">Comunicação da Equipe</h3>
+          <AgentWhatsApp currentAgentId="pesquisador" currentAgentName="Pesquisador de Mercado" />
+        </div>
+
+        <div className="mt-8 border-t border-slate-100 pt-6">
           <h3 className="text-lg font-bold text-slate-800 mb-4">Auditoria do Pesquisador</h3>
           <TaskAuditPanel mockTasks={mockHistory} />
         </div>

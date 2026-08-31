@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Radar, Search, ExternalLink, Activity, Target } from 'lucide-react';
 import TaskAuditPanel, { AuditTask } from './TaskAuditPanel';
+import AgentWhatsApp from '../chat/AgentWhatsApp';
 
 export default function CompetitiveIntelligence() {
   const [mockHistory, setMockHistory] = useState<AuditTask[]>([]);
@@ -144,7 +145,12 @@ export default function CompetitiveIntelligence() {
           )}
         </div>
 
-        <div className="mt-8">
+        <div className="mt-8 border-t border-slate-100 pt-6">
+          <h3 className="text-lg font-bold text-slate-800 mb-4">Comunicação da Equipe</h3>
+          <AgentWhatsApp currentAgentId="monitor" currentAgentName="Monitor de Concorrência" />
+        </div>
+
+        <div className="mt-8 border-t border-slate-100 pt-6">
           <h3 className="text-lg font-bold text-slate-800 mb-4">Auditoria do Monitor</h3>
           <TaskAuditPanel mockTasks={mockHistory} />
         </div>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import AgentWhatsApp from '../chat/AgentWhatsApp';
 //, { useState } from 'react';
 import { Palette, ImageIcon, Video } from 'lucide-react';
 import PhotoProduction from '../marketing/PhotoProduction';
@@ -78,6 +79,10 @@ export default function ArtDirector() {
 
       <div className="mt-6">
         {activeTab === 'photos' ? <PhotoProduction /> : <VideoProduction />}
+      </div>
+      <div className="mt-8 border-t border-slate-100 pt-6">
+        <h3 className="text-lg font-bold text-slate-800 mb-4">Comunicação da Equipe</h3>
+        <AgentWhatsApp currentAgentId="art" currentAgentName="Diretor de Arte e Áudio" />
       </div>
     </div>
   );

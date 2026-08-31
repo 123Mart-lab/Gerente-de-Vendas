@@ -1,5 +1,6 @@
 import React from 'react';
 import { PenTool } from 'lucide-react';
+import AgentWhatsApp from '../chat/AgentWhatsApp';
 
 export default function ContentCopywriter() {
   return (
@@ -23,6 +24,10 @@ export default function ContentCopywriter() {
               className="w-full h-32 p-3 border border-slate-200 rounded-md text-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500 bg-white"
               placeholder="Ex: Você é um Copywriter especialista em SEO e redação publicitária de conversão..."
             />
+          </div>
+          <div className="mt-8 border-t border-slate-100 pt-6">
+            <h3 className="text-lg font-bold text-slate-800 mb-4">Comunicação da Equipe</h3>
+            <AgentWhatsApp currentAgentId="copywriter" currentAgentName="Redator de Conteúdo e Blogs" />
           </div>
         </div>
       </div>

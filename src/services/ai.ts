@@ -834,8 +834,9 @@ Exemplo: [ENCAMINHAR_PARA: pesquisador] Olá pesquisador, faça a pesquisa sobre
         });
 
         if (response.functionCalls && response.functionCalls.length > 0) {
-          // Adiciona a chamada da função ao histórico
-          contents.push({ role: 'model', parts: response.functionCalls.map((c: any) => ({ functionCall: c })) });
+          // Adiciona a chamada da função ao histórico preservando todos os parts originais
+          const modelParts = response.candidates?.[0]?.content?.parts || response.functionCalls.map((c: any) => ({ functionCall: c }));
+          contents.push({ role: 'model', parts: modelParts });
           
           const toolResults = [];
           for (const call of response.functionCalls) {
@@ -888,9 +889,9 @@ Exemplo: [ENCAMINHAR_PARA: pesquisador] Olá pesquisador, faça a pesquisa sobre
       
       // Salva a resposta gerada pelo AI no banco de dados como se fosse o receiver falando para o sender
       await firebaseService.saveAgentChatMessage(aiText, receiver, sender);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro ao gerar resposta do agente:', err);
-      await firebaseService.saveAgentChatMessage("Desculpe, tive um problema de comunicação interno e não consegui processar a mensagem.", receiver, sender);
+      await firebaseService.saveAgentChatMessage(`Desculpe, tive um problema de comunicação interno e não consegui processar a mensagem: ${err.message}`, receiver, sender);
     }
   },
 

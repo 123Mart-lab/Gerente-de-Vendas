@@ -1015,6 +1015,21 @@ async function startServer() {
     });
   }
 
+  // ==========================================
+  // KEEP-ALIVE (Sistema Anti-Sleep)
+  // ==========================================
+  // Pinga a própria rota de /health a cada 14 minutos para evitar que o container hiberne
+  setInterval(() => {
+    try {
+      fetch(`http://localhost:${PORT}/api/health`)
+        .then(res => res.json())
+        .then(data => console.log(`[⏰ Keep-Alive] Ping interno executado com sucesso:`, data.status))
+        .catch(err => console.error(`[⏰ Keep-Alive] Falha no ping:`, err.message));
+    } catch (e) {
+      console.error('[⏰ Keep-Alive] Erro interno:', e);
+    }
+  }, 14 * 60 * 1000); // 14 minutos
+
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`
     🧠 [123MART BRAIN API] Inicializada com sucesso!

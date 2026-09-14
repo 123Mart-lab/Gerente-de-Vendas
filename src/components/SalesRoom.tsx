@@ -453,7 +453,7 @@ function StatRow({ icon, label, value, color }: { icon: React.ReactNode, label: 
   return (
     <div className="flex items-center justify-between py-1.5 border-b border-slate-700/50">
       <div className={`flex items-center gap-2 ${color}`}>
-        {React.cloneElement(icon as React.ReactElement, { className: 'w-4 h-4' })}
+        {React.cloneElement(icon as React.ReactElement<{className?: string}>, { className: 'w-4 h-4' })}
         <span className="text-xs font-bold uppercase tracking-wider">{label}</span>
       </div>
       <span className="font-mono font-bold text-white text-sm">{value}</span>

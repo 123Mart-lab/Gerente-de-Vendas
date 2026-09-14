@@ -1,3 +1,5 @@
+import { buildPlannerPrompt } from '../prompts/planner';
+import { buildMonitorPrompt } from '../prompts/monitor';
 import { GoogleGenAI, Type, Tool, HarmCategory, HarmBlockThreshold } from '@google/genai';
 import fs from 'fs';
 import path from 'path';
@@ -204,7 +206,7 @@ Faça os cálculos de viabilidade (markup/markdown) com base nessas premissas fi
     const financeResult = await ai.models.generateContent({
       model: 'gemini-3.7-flash',
       contents: financePrompt,
-      config: { temperature: 0.2 }
+      config: { temperature: 0.5 }
     });
     const financeResponse = financeResult.text;
     if (onStepComplete) onStepComplete('finance', financePrompt, financeResponse || '');
@@ -216,15 +218,14 @@ Faça os cálculos de viabilidade (markup/markdown) com base nessas premissas fi
     };
   },
   
+  
   async runOrchestrationPipeline(productData: any, onStepComplete?: (step: string, prompt: string, response: string) => void, saveProductCallback?: (seoJson: any) => Promise<void>) {
-    
     const settings = await firebaseService.getSettings();
     const hasRallyMcp = settings?.agentPermissions?.['pesquisador-mercado']?.['github-rally-mcp'] !== false;
     const hasCloudSearch = settings?.agentPermissions?.['pesquisador-mercado']?.['cloud-search'] === true;
     const hasNlp = settings?.agentPermissions?.['pesquisador-mercado']?.['nlp'] === true;
 
     // 1. Extração de Dados Reais (Background)
-    // O Gerente aciona as novas skills por debaixo dos panos para alimentar os agentes
     let realTrends = '';
     let realQuotes = '';
     try {
@@ -237,81 +238,74 @@ Faça os cálculos de viabilidade (markup/markdown) com base nessas premissas fi
       realQuotes = JSON.stringify(quotesData);
     } catch(e) { realQuotes = 'Não foi possível buscar cotações em tempo real.'; }
 
-    // 1. Pesquisador (Planner + Rally MCP)
-    const plannerPrompt = `Você é um Planner e Pesquisador de Mercado focado em e-commerce${hasRallyMcp ? ', operando com a skill "Rally MCP"' : ''}.
-Sua missão é analisar o produto:
-Nome: ${productData.name}
-Preço Atual da Loja: ${productData.price}
-Descrição Original: ${productData.description || 'Sem descrição'}
-
-Acabamos de extrair os seguintes dados de Tendências (Mercado Livre/Shopee):
-${realTrends}
-
-${hasCloudSearch ? '[INTEGRAÇÃO ATIVADA: Cloud Search API]\nConsidere que você vasculhou os catálogos técnicos em PDF do nosso Drive. Utilize dados técnicos profundos na sua análise.\n' : ''}
-${hasNlp ? '[INTEGRAÇÃO ATIVADA: Cloud Natural Language API]\nConsidere que você raspou avaliações reais. Extraia o "Sentimento" macro dos clientes concorrentes e detalhe explicitamente as reclamações.\n' : ''}
-
-Por favor, forneça um Relatório de Tendências e Demanda contendo:
-- O que está em alta (buscas e features valorizadas) baseando-se nos dados reais.
-- Principais argumentos de venda (gatilhos mentais).
-- Principais objeções (o que faz o cliente desistir da compra).
-Seja altamente estratégico e use os dados extraídos.`;
-    
+    // 1. Pesquisador (Planner)
+    const plannerPrompt = buildPlannerPrompt(productData, realTrends);
     const plannerResult = await ai.models.generateContent({ model: 'gemini-3.7-flash', contents: plannerPrompt, config: { temperature: 0.5 } });
     const plannerResponse = plannerResult.text;
     if (onStepComplete) onStepComplete('planner', plannerPrompt, plannerResponse || '');
 
-    // 2. Monitor de Inteligência Competitiva (Scraper Google/Buscapé)
-    const monitorPrompt = `Você é um Monitor de Inteligência Competitiva focado em benchmarking de preços (Scraper Google/Buscapé).
-Produto: "${productData.name}"
-Nosso Preço: ${productData.price}
-
-Dados REAIS de mercado recém-extraídos do nosso Web Scraper:
-${realQuotes}
-
-Resumo do Pesquisador de Mercado:
-${plannerResponse}
-
-Com base nesses DADOS REAIS, crie um Relatório de Oportunidades (Benchmark de Precificação):
-1. Avalie a nossa competitividade atual de preço frente à Média de Mercado, Menor Preço e Maior Preço.
-2. Defina o nosso posicionamento ideal (estamos brigando por preço baixo, valor agregado ou somos a opção mais cara injustificadamente?).
-3. Sugira uma margem/desconto ideal ou uma estratégia de ancoragem caso o nosso preço seja alto.`;
-    
+    // 2. Monitor de Inteligência Competitiva
+    const monitorPrompt = buildMonitorPrompt(productData, realQuotes, plannerResponse);
     const monitorResult = await ai.models.generateContent({ model: 'gemini-3.7-flash', contents: monitorPrompt, config: { temperature: 0.5 } });
     const monitorResponse = monitorResult.text;
     if (onStepComplete) onStepComplete('monitor', monitorPrompt, monitorResponse || '');
 
-    // 3. Gerente de Projetos (Synthesizer)
-    const managerPrompt = `Você é um Gerente de Projetos de E-commerce. Você coordena a equipe e deve sintetizar a pesquisa bruta em um "Briefing Executivo de Execução" impecável.
-Produto: "${productData.name}"
+    // 3. Diretor de Arte
+    const artPrompt = `[ORDEM DE SERVIÇO - GERÊNCIA DE PROJETOS]
+Agente: Diretor de Arte Sênior
+SKU de Referência: ${productData.sku}
 
-[RELATÓRIO DO PESQUISADOR (Rally MCP)]
+Você é um Diretor de Arte Sênior. A sua missão é criar a identidade visual do anúncio focada em altíssima taxa de cliques (CTR) e retenção.
+Os dados da Pesquisa e Concorrência que devem guiar seu visual:
+[PLANNER]
 ${plannerResponse}
-
-[RELATÓRIO DO MONITOR (Preços Reais)]
+[MONITOR]
 ${monitorResponse}
 
-Crie um BRIEFING EXECUTIVO DE EXECUÇÃO claro e conciso para a equipe de Criação (SEO e Design). 
-Remova qualquer ruído. O Briefing deve conter obrigatoriamente:
-1. Posicionamento de Preço (O que o cliente precisa sentir para achar que vale a pena pagar o nosso preço).
-2. Ângulo de Venda Principal (Qual dor o produto resolve melhor).
-3. Objeções a Quebrar (O que o SEO e o Design DEVEM combater no anúncio).
-Seja imperativo e claro. Este briefing será a lei para os executores.`;
+SUA MISSÃO:
+Crie o "Mapa Visual da Oferta" para nortear a produção das imagens e vídeos do SKU ${productData.sku}.
+Você DEVE respeitar rigorosamente as Regras de Ouro (Padrão 123Mart):
+- A Lei Absoluta da Imagem: Strict Compositing (Fotomontagem Rigorosa). Preservar 100% da anatomia original do produto.
+- Protocolo Typográfico (Nano Banana 2): Textos nunca se misturam aos pixels do produto. Usar Negative Space. Textos renderizados SEMPRE entre aspas duplas ("").
 
-    const managerResult = await ai.models.generateContent({ model: 'gemini-3.7-flash', contents: managerPrompt, config: { temperature: 0.7 } });
-    const managerResponse = managerResult.text;
-    if (onStepComplete) onStepComplete('manager', managerPrompt, managerResponse || '');
+Descreva a execução exata para CADA UM dos 8 ativos obrigatórios da Galeria:
+1. SLOT 1 (Hero Image): Fundo 100% branco puro. 1:1. Proibido texto.
+2. SLOT 2 (Lifestyle): Contexto de uso natural.
+3. SLOT 3 (Infográfico Benefício): Texto e uso do Negative Space. Max 2 bullets.
+4. SLOT 4 (Zoom Técnico): Detalhe focado com linhas guia.
+5. SLOT 5 (Infográfico Rendimento/Comparação).
+6. SLOT 6 (Prova Social/Garantia).
+7. SLOT 7 (CTA/Oferta Final).
+8. VÍDEO (Motor de Retenção): Hook de 3 segundos vertical.
+9. MOODBOARD: Tom visual e paleta de cores.`;
+    
+    const artResult = await ai.models.generateContent({ model: 'gemini-3.7-flash', contents: artPrompt, config: { temperature: 0.7 } });
+    const artResponse = artResult.text;
+    if (onStepComplete) onStepComplete('art', artPrompt, artResponse || '');
 
     // 4. Especialista SEO
-    const seoPrompt = `Você é um Especialista SEO Sênior focado em conversão.
-Sua atitude: Salvar tudo que produz no anúncio. Você recebe o briefing do Gerente, gera todos os campos a serem preenchidos no produto (Título, Descrição, Meta tags, HTML válido), salva na Nuvemshop e responde ao Gerente apresentando um comparativo claro do Antes e Depois.
+    const seoSystemContext = `[DIRETRIZ MESTRA DE OTIMIZAÇÃO]
+Dados da Pesquisa do Planner:
+${plannerResponse}
 
-[BRIEFING EXECUTIVO]
-${managerResponse}`;
+Estratégia do Monitor:
+${monitorResponse}
+
+Direção de Arte:
+${artResponse}`;
+
+    const seoPrompt = `[ORDEM DE SERVIÇO - GERÊNCIA DE PROJETOS]
+Agente: Especialista SEO Sênior
+SKU de Referência: ${productData.sku}
+
+Você é um Especialista SEO Sênior focado em conversão.
+Sua atitude: Você recebe a estratégia visual e de precificação da equipe, gera todos os campos otimizados (Título Estratégico max 70 chars, Descrição com Quebra de Objeções, Meta tags, HTML válido), salva na plataforma e responde com o comparativo do Antes e Depois para o SKU ${productData.sku}.
+
+[CONTEXTO DA EQUIPE]
+${seoSystemContext}`;
+
+    const seoJson = await this.generateProductSEO(productData, seoSystemContext);
     
-    // Calls the existing logic but injects the briefing
-    const seoJson = await this.generateProductSEO(productData, managerResponse);
-    
-    // Save to Nuvemshop if callback is provided
     let saveMessage = "Não foi possível salvar o anúncio (nenhum callback fornecido).";
     if (saveProductCallback) {
       try {
@@ -325,41 +319,44 @@ ${managerResponse}`;
 
     const seoResponsePayloadJSON = JSON.stringify({
       message: saveMessage,
-      before: {
-        titulo: productData.name,
-        descricao: productData.description || '',
-        meta: productData.seo_description || '',
-        seoTitle: productData.seo_title || ''
-      },
-      after: {
-        titulo: seoJson.novoTitulo,
-        descricao: seoJson.novaDescricaoHtml,
-        meta: seoJson.novaMetaDescription,
-        seoTitle: seoJson.novoTituloSeo
-      }
+      otimizacaoSEO: seoJson,
+      diretrizes: "Trabalho técnico de SEO concluído. Metadados e Copywrighting gerados com foco em alta conversão e indexação algorítmica."
     }, null, 2);
 
     if (onStepComplete) onStepComplete('seo', seoPrompt, seoResponsePayloadJSON);
 
-    // 5. Diretor de Arte
-    const artPrompt = `Você é um Diretor de Arte Sênior. 
-A copy de SEO já foi criada:
+    // 5. Gerente de Projetos (Synthesizer - Briefing Final)
+    const managerPrompt = `[SÍNTESE EXECUTIVA - GERÊNCIA DE PROJETOS]
+SKU de Referência: ${productData.sku}
+
+Você é o Gerente de Projetos de E-commerce Sênior. Sua função é orquestrar a equipe e sintetizar toda a inteligência captada em um "Briefing Mestre" impecável e profissional para o SKU: ${productData.sku}. A equipe já finalizou todo o trabalho de pesquisa, precificação, arte e SEO.
+
+[INTELIGÊNCIA DO PLANNER]
+${plannerResponse}
+[INTELIGÊNCIA DO MONITOR]
+${monitorResponse}
+[ARTE]
+${artResponse}
+[SEO]
 ${seoResponsePayloadJSON}
 
-O Briefing do Gerente é:
-${managerResponse}
+SUA MISSÃO:
+Crie o BRIEFING MESTRE definitivo. Este documento será empacotado e enviado via Webhook para sistemas automáticos (como o MeliAgent).
+Estruture o briefing com os seguintes tópicos obrigatórios:
+1. Diretriz de Posicionamento Oficial.
+2. Veredito da Estratégia de Preço e Oferta.
+3. Resumo da Copy e Gatilhos de SEO Ativos.
+4. Framework Visual Aprovado.
+5. Autorização Executiva para o Webhook.
 
-Sua função é criar o "Mapa Visual da Oferta" para o designer montar as imagens do anúncio de "${productData.name}".
-1. Descreva a IMAGEM DE CAPA ideal (Cores, composição, texto de apoio na imagem).
-2. Descreva 2 IMAGENS SECUNDÁRIAS focadas em quebrar objeções (Ex: Infográfico de medidas, selo de garantia, zoom no material).
-3. Qual o "mood" (tom visual) deve ser adotado (ex: Luxo, Acessível, Tecnológico, Minimalista)?`;
-    
-    const artResult = await ai.models.generateContent({ model: 'gemini-3.7-flash', contents: artPrompt, config: { temperature: 0.7 } });
-    const artResponse = artResult.text;
-    if (onStepComplete) onStepComplete('art', artPrompt, artResponse || '');
+Seja executivo, imperativo e direto. Este é o pacote final de produção.`;
+
+    const managerResult = await ai.models.generateContent({ model: 'gemini-3.7-flash', contents: managerPrompt, config: { temperature: 0.7 } });
+    const managerResponse = managerResult.text;
+    if (onStepComplete) onStepComplete('manager', managerPrompt, managerResponse || '');
   },
 
-    async generateViralContent(productData: any, platform: string) {
+  async generateViralContent(productData: any, platform: string) {
     const settings = await firebaseService.getSettings();
     const hasRallyMcp = settings?.agentPermissions?.['social-media']?.['github-rally-mcp'] !== false;
     const hasNlp = settings?.agentPermissions?.['social-media']?.['nlp'] === true;
@@ -748,7 +745,12 @@ Formato obrigatório de retorno (JSON puro):
     }
   },
   
-  async handleAgentChat(text: string, sender: string, receiver: string) {
+  async handleAgentChat(text: string, sender: string, receiver: string, depth: number = 0) {
+    if (depth >= 3) {
+      console.warn(`[AI Loop Guard] Maximum forwarding depth reached (3). Dropping message from ${sender} to ${receiver} to prevent token drain.`);
+      return;
+    }
+
     try {
       // Lê as configurações e permissões
       const settings = await firebaseService.getSettings();
@@ -892,7 +894,7 @@ Exemplo: [ENCAMINHAR_PARA: pesquisador] Olá pesquisador, faça a pesquisa sobre
           try {
             await firebaseService.saveAgentChatMessage(messageToNextAgent, receiver, nextAgentId);
             // Simula o próximo agente recebendo e respondendo
-            await aiService.handleAgentChat(messageToNextAgent, receiver, nextAgentId);
+            await aiService.handleAgentChat(messageToNextAgent, receiver, nextAgentId, depth + 1);
           } catch (e) {
             console.error('Erro no encaminhamento de mensagem', e);
           }

@@ -23,12 +23,39 @@ function getDb() {
   }
   
   // Apontando para o banco customizado ou via variável de ambiente
-  const defaultDbId = process.env.FIREBASE_DATABASE_ID || 'ai-studio-123martbot-19f3e99a-8216-4025-87f9-5c4fa761b2df';
+  const defaultDbId = process.env.FIREBASE_DATABASE_ID || '(default)';
   dbInstance = getFirestore(defaultDbId !== '(default)' ? defaultDbId : undefined);
   return dbInstance;
 }
 
-const inMemoryChats: any[] = [];
+import fs from 'fs';
+import path from 'path';
+
+const DATA_DIR = path.join(process.cwd(), '.data');
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
+function loadLocalData(filename, defaultVal) {
+  try {
+    const file = path.join(DATA_DIR, filename);
+    if (fs.existsSync(file)) {
+      return JSON.parse(fs.readFileSync(file, 'utf8'));
+    }
+  } catch(e) {}
+  return defaultVal;
+}
+
+function saveLocalData(filename, data) {
+  try {
+    const file = path.join(DATA_DIR, filename);
+    fs.writeFileSync(file, JSON.stringify(data, null, 2));
+  } catch(e) {}
+}
+
+let inMemoryChats = loadLocalData('chats.json', []);
+let inMemoryBriefings = loadLocalData('briefings.json', {});
+
 
 export const firebaseService = {
   /**
@@ -226,6 +253,76 @@ export const firebaseService = {
     }
   },
 
+  /**
+   * Salva o briefing de um SKU
+   */
+    async deleteSkuBriefing(sku: string) {
+    try {
+      const db = getDb();
+      await db.collection('sku_briefings').doc(sku).delete();
+      console.log(`[Firebase] Briefing do SKU ${sku} deletado com sucesso.`);
+    } catch (e: any) {
+      console.warn('Firebase error in deleteSkuBriefing, falling back to memory', e.message);
+      if (inMemoryBriefings[sku]) {
+        delete inMemoryBriefings[sku];
+        saveLocalData('briefings.json', inMemoryBriefings);
+      }
+    }
+  },
+  async saveSkuBriefing(sku: string, briefingData: any) {
+    try {
+      const db = getDb();
+      await db.collection('sku_briefings').doc(sku).set({
+        ...briefingData,
+        updatedAt: FieldValue.serverTimestamp()
+      }, { merge: true });
+      console.log(`[Firebase] Briefing do SKU ${sku} salvo com sucesso.`);
+    } catch (e: any) {
+      console.warn('Firebase error in saveSkuBriefing, falling back to memory', e.message);
+      inMemoryBriefings[sku] = { ...(inMemoryBriefings[sku] || {}), ...briefingData, updatedAt: Date.now() };
+      saveLocalData('briefings.json', inMemoryBriefings);
+    }
+  },
+
+  /**
+   * Recupera todos os briefings de SKUs
+   */
+  
+  async renameSkuBriefing(oldSku: string, newSku: string) {
+    try {
+      const db = getDb();
+      const doc = await db.collection('sku_briefings').doc(oldSku).get();
+      if (doc.exists) {
+        const data = doc.data();
+        data.sku = newSku;
+        if (data.errorWaitingForSku) {
+           data.errorWaitingForSku = false;
+        }
+        await db.collection('sku_briefings').doc(newSku).set(data);
+        await db.collection('sku_briefings').doc(oldSku).delete();
+      }
+    } catch (e: any) {
+      if (inMemoryBriefings[oldSku]) {
+        inMemoryBriefings[newSku] = { ...inMemoryBriefings[oldSku], sku: newSku, errorWaitingForSku: false };
+        delete inMemoryBriefings[oldSku];
+        saveLocalData('briefings.json', inMemoryBriefings);
+      }
+    }
+  },
+  async getSkuBriefings() {
+    try {
+      const db = getDb();
+      const snapshot = await db.collection('sku_briefings').orderBy('updatedAt', 'desc').get();
+      if (snapshot.empty && Object.keys(inMemoryBriefings).length > 0) {
+        return Object.values(inMemoryBriefings).sort((a: any, b: any) => b.updatedAt - a.updatedAt);
+      }
+      return snapshot.docs.map(doc => ({ sku: doc.id, ...doc.data() }));
+    } catch (e: any) {
+      console.warn('Firebase error in getSkuBriefings, returning memory fallback', e.message);
+      return Object.values(inMemoryBriefings).sort((a: any, b: any) => b.updatedAt - a.updatedAt);
+    }
+  },
+
   async saveAgentChatMessage(text: string, sender: string, receiver: string) {
     const newMsg = {
       text,
@@ -246,11 +343,13 @@ export const firebaseService = {
       });
       const savedMsg = { id: docRef.id, ...newMsg };
       inMemoryChats.push(savedMsg);
+      saveLocalData('chats.json', inMemoryChats);
       return savedMsg;
     } catch (e: any) {
       console.warn('Firebase error in saveAgentChatMessage', e.message);
       const fallbackMsg = { id: Date.now().toString(), ...newMsg };
       inMemoryChats.push(fallbackMsg);
+      saveLocalData('chats.json', inMemoryChats);
       return fallbackMsg;
     }
   }

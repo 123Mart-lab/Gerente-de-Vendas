@@ -1,6 +1,10 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 
 export interface RulesSettings {
+  warmupPhase?: string;
+  warmupMessageCount?: number;
+  warmupIntervalMin?: number;
+  warmupIntervalMax?: number;
   useDelay: boolean;
   delayMin: number;
   delayMax: number;

@@ -5,7 +5,7 @@ export const generatePdf = (res: Response, role: string, sku: string) => {
   const doc = new PDFDocument({ margin: 50 });
   
   // Pipe its output to the Express response
-  res.setHeader('Content-disposition', `attachment; filename="${role}_${sku}.pdf"`);
+  res.setHeader('Content-disposition', `inline; filename="${role}_${sku}.pdf"`);
   res.setHeader('Content-type', 'application/pdf');
   doc.pipe(res);
 

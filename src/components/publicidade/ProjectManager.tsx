@@ -385,7 +385,7 @@ function OtimizacaoAnuncios() {
                         }}
                       >
                         <div className="font-medium text-slate-800">{p.name}</div>
-                        <div className="text-xs text-slate-500 mt-1">ID: {p.id}</div>
+                        <div className="text-xs text-slate-500 mt-1">SKU: {p.id}</div>
                       </li>
                     ))}
                   </ul>

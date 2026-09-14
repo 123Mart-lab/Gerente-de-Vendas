@@ -700,8 +700,8 @@ app.post('/api/marketing/orchestrate-optimization', async (req, res) => {
       }
     }
 
-    const payload = req.body;
-    const resolvedSku = payload.sku || payload.id || payload.productId;
+    const payload = { ...req.body, sku: req.body.sku || req.body.id || req.body.productId, name: req.body.query || req.body.name };
+    const resolvedSku = payload.sku;
     if (!resolvedSku) {
        return res.status(400).json({ error: 'SKU não fornecido na requisição de otimização.' });
     }

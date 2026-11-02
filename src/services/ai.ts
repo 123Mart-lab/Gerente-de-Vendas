@@ -220,6 +220,10 @@ Faça os cálculos de viabilidade (markup/markdown) com base nessas premissas fi
   
   
   async runOrchestrationPipeline(productData: any, onStepComplete?: (step: string, prompt: string, response: string) => void, saveProductCallback?: (seoJson: any) => Promise<void>) {
+    if (!productData || !productData.sku || productData.sku === 'undefined' || productData.sku.toString().trim() === '') {
+      throw new Error(`[OrchestrationPipeline] Falha crítica de validação: SKU do produto não fornecido ou indefinido (${productData?.sku}). A esteira exige um SKU válido iniciado em 123Mart.`);
+    }
+
     const settings = await firebaseService.getSettings();
     const hasRallyMcp = settings?.agentPermissions?.['pesquisador-mercado']?.['github-rally-mcp'] !== false;
     const hasCloudSearch = settings?.agentPermissions?.['pesquisador-mercado']?.['cloud-search'] === true;
@@ -250,34 +254,69 @@ Faça os cálculos de viabilidade (markup/markdown) com base nessas premissas fi
     const monitorResponse = monitorResult.text;
     if (onStepComplete) onStepComplete('monitor', monitorPrompt, monitorResponse || '');
 
-    // 3. Diretor de Arte
+    // 3. Diretor de Arte (Especialista Design Gráfico 123Mart V2.0)
     const artPrompt = `[ORDEM DE SERVIÇO - GERÊNCIA DE PROJETOS]
-Agente: Diretor de Arte Sênior
+Agente: Especialista de Design Gráfico 123Mart (V2.0)
 SKU de Referência: ${productData.sku}
+Produto: ${productData.name}
 
-Você é um Diretor de Arte Sênior. A sua missão é criar a identidade visual do anúncio focada em altíssima taxa de cliques (CTR) e retenção.
-Os dados da Pesquisa e Concorrência que devem guiar seu visual:
+🛡️ MATRIZ DE IDENTIDADE GEM: ESPECIALISTA DESIGN GRÁFICO 123MART (V2.0)
+MISSÃO PRINCIPAL:
+Atuar como o Especialista de Design Gráfico, Diagramador de Conversão e Engenheiro de Onboarding de SKUs da 123Mart. Sua missão é traduzir SKUs físicos em dossiês de alta conversão, gerar matrizes fotográficas de cenário (Slots 2 a 7) via Strict Compositing e estruturar ativos visuais autossuficientes que retenham a atenção total do cliente, impedindo a fuga para anúncios concorrentes.
+
+REGRAS INE GOCIÁVEIS (O PADRÃO 123MART):
+1. O PRODUTO E A ESCALA (FOTOMONTAGEM RIGOROSA):
+   - O produto da "Imagem 1" é a Lei Absoluta; é PROIBIDO sintetizar ou alterar embalagens via IA.
+   - Atue em modo "Compositing", preservando 100% da anatomia original (cor, tampa, rótulo).
+2. SLOT 1 (HERO IMAGE):
+   - Fundo 100% branco puro (RGB 255,255,255), proporção 1:1 (1200x1200px), sem textos ou marcas d’água.
+3. TIPOGRAFIA ALGORÍTMICA (MOTOR NANO BANANA 2):
+   - O texto deve ser tratado como uma sobreposição vetorial estrita, NUNCA misturando pixels do texto com o produto.
+   - O texto a ser gerado deve estar SEMPRE entre aspas duplas ("") no comando.
+   - É proibido alucinar letras; utilize títulos curtos e no máximo 2 bullets rápidos para garantir legibilidade.
+4. RETENÇÃO VISUAL E NEGATIVE SPACE (SLOTS 2 A 7):
+   - Slots 2 a 7 devem ser infográficos autossuficientes utilizando a técnica de Negative Space para renderização nativa de textos em Português (BR).
+   - Aplique sombras de contato (Drop Shadow) apenas na base para integração realística.
+5. PROTOCOLO DE BRANDING E LOGÍSTICA:
+   - Títulos: MÁXIMO DE 60 CARACTERES, seguindo rigorosamente a ordem: Produto + Marca + Modelo + Diferencial.
+   - Logística ERP: Metadados (EAN/GTIN, cubagem e peso) devem ser impecáveis para integração com Olist Tiny ERP.
+
+DADOS DE ENTRADA:
 [PLANNER]
 ${plannerResponse}
+
 [MONITOR]
 ${monitorResponse}
 
-SUA MISSÃO:
-Crie o "Mapa Visual da Oferta" para nortear a produção das imagens e vídeos do SKU ${productData.sku}.
-Você DEVE respeitar rigorosamente as Regras de Ouro (Padrão 123Mart):
-- A Lei Absoluta da Imagem: Strict Compositing (Fotomontagem Rigorosa). Preservar 100% da anatomia original do produto.
-- Protocolo Typográfico (Nano Banana 2): Textos nunca se misturam aos pixels do produto. Usar Negative Space. Textos renderizados SEMPRE entre aspas duplas ("").
+EXECUTE AS 3 FASES OPERACIONAIS OBRIGATÓRIAS:
 
-Descreva a execução exata para CADA UM dos 8 ativos obrigatórios da Galeria:
-1. SLOT 1 (Hero Image): Fundo 100% branco puro. 1:1. Proibido texto.
-2. SLOT 2 (Lifestyle): Contexto de uso natural.
-3. SLOT 3 (Infográfico Benefício): Texto e uso do Negative Space. Max 2 bullets.
-4. SLOT 4 (Zoom Técnico): Detalhe focado com linhas guia.
-5. SLOT 5 (Infográfico Rendimento/Comparação).
-6. SLOT 6 (Prova Social/Garantia).
-7. SLOT 7 (CTA/Oferta Final).
-8. VÍDEO (Motor de Retenção): Hook de 3 segundos vertical.
-9. MOODBOARD: Tom visual e paleta de cores.`;
+FASE 1: ONBOARDING E DOSSIÊ ("COMANDO 1")
+- Título SEO: RIGOROSAMENTE limitado a 60 caracteres (Produto + Marca + Modelo + Diferencial).
+- Copy de Conversão: Headline, Benefícios, Rendimento e FAQ persuasivo.
+- SEO Técnico: Title tag e Meta Description.
+- Dados Logísticos: Estimativas de peso líquido, bruto, dimensões e cubagem para o Olist Tiny ERP.
+
+FASE 2: GALERIA DE CONVERSÃO (COMANDOS 2 A 7 - NANO BANANA 2)
+Estruture cada slot com isolamento de variáveis:
+- [O PRODUTO]: Preservação absoluta da Imagem 1 (Proporção 1:1).
+- [CENÁRIO E ÂNGULO]: Descrição do ambiente com ângulo Eye-level e sombra de base.
+- [TEXTO NATIVO]: Renderização na área de Negative Space utilizando aspas duplas ("") para o conteúdo textual.
+Slots:
+* SLOT 1: Hero Image (Capa 100% Branco Puro, sem texto)
+* SLOT 2: Lifestyle
+* SLOT 3: Infográfico Benefício Principal (Max 2 bullets)
+* SLOT 4: Zoom Técnico (pH Neutro / Mecanismo de Ação)
+* SLOT 5: Infográfico Rendimento / Custo-Benefício
+* SLOT 6: Prova Social & Blindagem Logística
+* SLOT 7: CTA / Oferta de Fechamento
+
+FASE 3: MOTOR DE RETENÇÃO (VÍDEO)
+- Formato: 9:16 (Vertical, 1080x1920px).
+- Duração: 8 segundos por cena.
+- Safe Zone: Ganchos e ações estritamente centrados para evitar cortes por interfaces de redes sociais.
+
+CHECKLIST DE SAÍDA OBRIGATÓRIO NO FINAL:
+"Confirmando: 1. Strict Compositing; 2. Nano Banana 2 (Texto entre ""); 3. Título < 60 carac.; 4. Slot 1 Fundo Branco; 5. Formato 1:1."`;
     
     const artResult = await ai.models.generateContent({ model: 'gemini-3.7-flash', contents: artPrompt, config: { temperature: 0.7 } });
     const artResponse = artResult.text;
@@ -745,13 +784,18 @@ Formato obrigatório de retorno (JSON puro):
     }
   },
   
-  async handleAgentChat(text: string, sender: string, receiver: string, depth: number = 0) {
+  async handleAgentChat(text: string, sender: string, receiver: string, depth: number = 0, activeSku?: string, activeProductName?: string) {
     if (depth >= 3) {
       console.warn(`[AI Loop Guard] Maximum forwarding depth reached (3). Dropping message from ${sender} to ${receiver} to prevent token drain.`);
       return;
     }
 
     try {
+      // Detecta SKU se presente no texto ou usa o activeSku fornecido
+      const detectedSkuMatch = text.match(/123mart[a-zA-Z0-9_-]+/i);
+      const resolvedSku = activeSku || (detectedSkuMatch ? detectedSkuMatch[0] : null);
+      const resolvedProductName = activeProductName || (resolvedSku ? `Produto ${resolvedSku}` : null);
+
       // Lê as configurações e permissões
       const settings = await firebaseService.getSettings();
       const hasNuvemshopApi = settings?.agentPermissions?.[receiver]?.['nuvemshop-api'] === true;
@@ -767,12 +811,21 @@ Formato obrigatório de retorno (JSON puro):
         console.error('Erro ao ler AGENTS.md', err);
       }
 
+      const skuDirective = resolvedSku ? `
+[DIRETRIZ MESTRA DE IDENTIFICAÇÃO DE PRODUTO]:
+- SKU DE REFERÊNCIA OBRIGATÓRIO: "${resolvedSku}"
+- PRODUTO: "${resolvedProductName}"
+- REQUISITO ABSOLUTO: Toda e qualquer ordem, análise, pesquisa, benchmark ou repasse entre agentes [ENCAMINHAR_PARA] DEVE conter expressamente este SKU ("${resolvedSku}"). É proibido usar "undefined" ou deixar de indicar o código do SKU.
+` : '';
+
       // Constrói o contexto para o Gemini
       const prompt = `Você faz parte de uma equipe de Agentes de Inteligência Artificial da empresa 123Mart.
 Abaixo está o manual de personas da equipe:
 ---
 ${agentsPersona}
 ---
+
+${skuDirective}
 
 O seu ID de agente é: "${receiver}". Assuma a persona, a atitude e as ferramentas correspondentes ao seu ID. 
 Você acabou de receber uma mensagem do agente/usuário de ID: "${sender}".
@@ -781,15 +834,15 @@ A mensagem recebida foi:
 "${text}"
 
 Por favor, responda a esta mensagem. Mantenha a atitude da sua persona, e caso a ordem fuja do seu escopo, negue educadamente ou direcione ao agente correto.
-Responda diretamente, sem aspas e sem cabeçalhos, apenas o texto da sua resposta. Se você for o Gerente de Projetos e a ordem for para outro agente, aja de acordo enviando a instrução para o próximo agente (informe na mensagem que você vai cobrar o próximo agente).
+Responda diretamente, sem aspas e sem cabeçalhos, apenas o texto da sua resposta. Se você for o Gerente de Projetos e a ordem for para outro agente, aja de acordo enviando a instrução para o próximo agente com o SKU correspondente (informe na mensagem que você vai cobrar o próximo agente).
 
 [IMPORTANTE - REPASSE DE MENSAGENS]:
 Se você (como Gerente de Projetos ou qualquer outro agente) precisar acionar outro agente da equipe, você DEVE gerar na sua resposta a tag de encaminhamento. 
 O sistema de backend interceptará essa tag e enviará a mensagem ao outro agente.
 Aqui estão os IDs oficiais dos agentes que você pode usar: diretoria, gerente, pesquisador, seo, monitor, art, copywriter, social, ads, merchant, metrics, finance.
 Formato exato e obrigatório da tag (coloque isso no final da sua resposta):
-[ENCAMINHAR_PARA: id_do_agente] Mensagem que você quer enviar para ele...
-Exemplo: [ENCAMINHAR_PARA: pesquisador] Olá pesquisador, faça a pesquisa sobre X.`;
+[ENCAMINHAR_PARA: id_do_agente] Mensagem que você quer enviar para ele (incluindo o SKU de referência)...
+Exemplo: [ENCAMINHAR_PARA: pesquisador] Olá pesquisador, realize a pesquisa e levantamento de concorrentes para o SKU ${resolvedSku || '123Mart...'} do produto ${resolvedProductName || '...'} imediatamente.`;
 
       const tools = [{
         functionDeclarations: [
@@ -893,8 +946,8 @@ Exemplo: [ENCAMINHAR_PARA: pesquisador] Olá pesquisador, faça a pesquisa sobre
         setTimeout(async () => {
           try {
             await firebaseService.saveAgentChatMessage(messageToNextAgent, receiver, nextAgentId);
-            // Simula o próximo agente recebendo e respondendo
-            await aiService.handleAgentChat(messageToNextAgent, receiver, nextAgentId, depth + 1);
+            // Simula o próximo agente recebendo e respondendo com o SKU mantido
+            await aiService.handleAgentChat(messageToNextAgent, receiver, nextAgentId, depth + 1, resolvedSku || undefined, resolvedProductName || undefined);
           } catch (e) {
             console.error('Erro no encaminhamento de mensagem', e);
           }

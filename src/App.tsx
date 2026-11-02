@@ -33,6 +33,7 @@ import CEOOverview from './components/CEOOverview';
 import CEOChat from './components/CEOChat';
 import CEOBriefing from './components/CEOBriefing';
 import { SettingsProvider } from './contexts/SettingsContext';
+import { SkuProvider } from './contexts/SkuContext';
 
 type SectorType = 'ceo' | 'comercial' | 'marketing' | 'financeiro' | 'rh';
 type CEOTabType = 'ceo-overview' | 'ceo-chat' | 'ceo-briefing';
@@ -156,7 +157,8 @@ export default function App() {
 
   return (
     <SettingsProvider>
-      <div className="flex flex-col h-screen bg-slate-50 text-slate-900 font-sans">
+      <SkuProvider>
+        <div className="flex flex-col h-screen bg-slate-50 text-slate-900 font-sans">
         
         {/* Top Navbar / Sector Selector */}
         <header className="h-14 bg-slate-900 text-white flex items-center px-4 md:px-6 shrink-0 z-50 shadow-sm relative">
@@ -352,6 +354,7 @@ export default function App() {
           </main>
         </div>
       </div>
+      </SkuProvider>
     </SettingsProvider>
   );
 }

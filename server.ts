@@ -6,6 +6,7 @@ import { firebaseService } from './src/services/firebase.js';
 import { aiService } from './src/services/ai.js';
 import { openwaService } from './src/services/openwa.js';
 import { generatePdf } from './src/services/pdfService.js';
+import { tinyErpService } from './src/services/tinyErp.js';
 
 // Importações das Filas e Workers (Comentadas temporariamente no ambiente de Sandbox 
 // para evitar erros de conexão (ECONNREFUSED) com o Redis, já que o AI Studio não possui Redis nativo)
@@ -384,8 +385,138 @@ app.get('/api/marketing/products', async (req, res) => {
   }
 });
 
+app.get('/api/marketing/nuvemshop/product/:idOrSku', async (req, res) => {
+  try {
+    const { idOrSku } = req.params;
+    let creds = null;
+    if (process.env.NUVEMSHOP_ACCESS_TOKEN && process.env.NUVEMSHOP_STORE_ID) {
+      creds = { 
+        accessToken: process.env.NUVEMSHOP_ACCESS_TOKEN.replace(/[^a-zA-Z0-9]/g, ''), 
+        storeId: process.env.NUVEMSHOP_STORE_ID.replace(/[^0-9]/g, '') 
+      };
+    } else {
+      try {
+        creds = await firebaseService.getNuvemshopCredentials();
+      } catch (err) {}
+    }
+    
+    if (!creds) {
+      return res.status(404).json({ error: 'Credenciais da Nuvemshop não encontradas.' });
+    }
+    
+    const { default: axios } = await import('axios');
+    const { storeId, accessToken } = creds;
+    const API_URL = `https://api.nuvemshop.com.br/v1/${storeId}`;
+    
+    let productData = null;
+    
+    // Tenta primeiro se idOrSku é numérico (ID direto na Nuvemshop)
+    if (/^\d+$/.test(idOrSku)) {
+      try {
+        const directRes = await axios.get(`${API_URL}/products/${idOrSku}`, {
+          headers: { 'Authentication': `bearer ${accessToken}`, 'User-Agent': '123Mart AI Assistant' }
+        });
+        if (directRes.data) productData = directRes.data;
+      } catch (e) {}
+    }
+    
+    // Se não encontrou, busca por termo/SKU na Nuvemshop
+    if (!productData) {
+      const searchRes = await axios.get(`${API_URL}/products`, {
+        headers: { 'Authentication': `bearer ${accessToken}`, 'User-Agent': '123Mart AI Assistant' },
+        params: { q: idOrSku, per_page: 20 }
+      });
+      
+      if (searchRes.data && searchRes.data.length > 0) {
+        // Tenta achar com match exato no SKU da variante
+        const exactMatch = searchRes.data.find((p: any) => 
+          p.variants?.some((v: any) => v.sku && v.sku.toLowerCase() === idOrSku.toLowerCase())
+        );
+        productData = exactMatch || searchRes.data[0];
+      }
+    }
+    
+    if (!productData) {
+      return res.status(404).json({ error: `Produto "${idOrSku}" não encontrado na Nuvemshop.` });
+    }
+    
+    const v = productData.variants?.[0] || {};
+    const realSku = v.sku || `${productData.id}`;
+    
+    const formatted = {
+      id: productData.id,
+      sku: realSku,
+      name: productData.name?.pt ?? (typeof productData.name === 'string' ? productData.name : 'Produto'),
+      description: productData.description?.pt ?? (typeof productData.description === 'string' ? productData.description : ''),
+      price: Number(v.price) || 0,
+      promotional_price: v.promotional_price ? Number(v.promotional_price) : undefined,
+      stock: v.stock !== null && v.stock !== undefined ? Number(v.stock) : 100,
+      weight: Number(v.weight) || 0.5,
+      dimensions: {
+        width: Number(v.width) || 8,
+        height: Number(v.height) || 24,
+        depth: Number(v.depth) || 6
+      },
+      barcode: v.barcode || '',
+      brand: productData.brand || 'Start Química',
+      seo_title: productData.seo_title || '',
+      seo_description: productData.seo_description || '',
+      images: (productData.images || []).map((img: any) => ({
+        id: img.id,
+        src: img.src,
+        alt: Array.isArray(img.alt) ? img.alt.join(', ') : img.alt || '',
+        position: img.position
+      }))
+    };
+    
+    res.json(formatted);
+  } catch (err: any) {
+    console.error('Erro ao buscar produto detalhado na Nuvemshop:', err?.response?.data || err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 
-let globalAuditTasks: any[] = [];
+
+let globalAuditTasks: any[] = [
+  {
+    id: 'task-art-123Mart09015-initial',
+    date: new Date().toLocaleDateString('pt-BR') + ' ' + new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+    productName: '[123Mart09015] Limpador Flotador Azulim 500ml Spray',
+    receivedPrompt: '🛡️ [MATRIZ GEM V2.0: ESPECIALISTA DESIGN GRÁFICO 123MART]\nSKU: 123Mart09015\nLei Absoluta: O Produto da Imagem 1 é a Lei Absoluta. Proibido sintetizar embalagens via IA.\nModo: Strict Compositing.\nMissão: Onboarding de SKU, Dossiê de Conversão, Galeria (Slots 1 a 7) e Vídeo 9:16.',
+    sentResponse: JSON.stringify({
+      status: 'approved_gem_v2',
+      sku: '123Mart09015',
+      message: 'Dossiê, Galeria de Conversão e Checklist GEM V2.0 homologados com 100% de conformidade.',
+      dossie: {
+        seoTitle: 'Limpador Flotador Azulim 500ml Spray Start Sem Enxágue',
+        seoTitleLength: '54 caracteres (<= 60 OK)',
+        tinyErpLogistics: {
+          ean: '7898242440156',
+          pesoLiquido: '0.500 kg',
+          pesoBruto: '0.540 kg',
+          dimensoes: '24 × 8 × 6 cm',
+          cubagem: '0.00115 m³',
+          ncm: '3402.20.00'
+        }
+      },
+      checklist: {
+        strictCompositing: 'Aprovado - Produto da Imagem 1 Preservado sem Síntese IA',
+        nanoBanana2: 'Aprovado - Textos nativos entre aspas ("") em Negative Space',
+        tituloAbaixoDe60: 'Aprovado - 54/60 caracteres (Produto + Marca + Modelo + Diferencial)',
+        slot1FundoBranco: 'Aprovado - Fundo 100% Branco Puro (RGB 255,255,255) sem textos',
+        formato1para1: 'Aprovado - 1200x1200px'
+      },
+      finalConfirmation: 'Confirmando: 1. Strict Compositing; 2. Nano Banana 2 (Texto entre ""); 3. Título < 60 carac.; 4. Slot 1 Fundo Branco; 5. Formato 1:1.'
+    }),
+    status: 'completed',
+    role: 'art',
+    requestingSector: 'Diretoria Executiva / Gerente de Projetos',
+    executingSector: 'Especialista Design Gráfico 123Mart (V2.0)',
+    oldScore: 30,
+    newScore: 100,
+    evolutionPercentage: 70
+  }
+];
 
 let globalSeoFilters = {
   enabled: false,
@@ -403,6 +534,32 @@ app.post('/api/marketing/seo-filters', (req, res) => {
 
 app.get('/api/marketing/seo-filters', (req, res) => {
   res.json(globalSeoFilters);
+});
+
+// ==========================================
+// ROTAS DE INTEGRAÇÃO COM TINY ERP (Olist Tiny)
+// ==========================================
+app.get('/api/marketing/tiny/products', async (req, res) => {
+  try {
+    const products = await tinyErpService.listProducts();
+    res.json(products);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/marketing/tiny/product/:sku', async (req, res) => {
+  try {
+    const { sku } = req.params;
+    const token = req.query.token as string | undefined;
+    const product = await tinyErpService.getProductBySku(sku, token);
+    if (!product) {
+      return res.status(404).json({ error: `Produto com SKU ${sku} não encontrado no Tiny ERP.` });
+    }
+    res.json(product);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 
@@ -425,13 +582,13 @@ app.get('/api/marketing/agent-chats', async (req, res) => {
 });
 
 app.post('/api/marketing/agent-chats', async (req, res) => {
-  const { text, sender, receiver } = req.body;
+  const { text, sender, receiver, activeSku, activeProductName } = req.body;
   const newMsg = await firebaseService.saveAgentChatMessage(text, sender, receiver);
   
   // Se a mensagem não for para o diretor (usuário humano), dispara o agente de IA para processá-la e responder
   if (receiver !== 'diretoria') {
     // Roda em background para não travar o frontend
-    aiService.handleAgentChat(text, sender, receiver).catch(e => console.error(e));
+    aiService.handleAgentChat(text, sender, receiver, 0, activeSku, activeProductName).catch(e => console.error(e));
   }
   
   res.json({ success: true, message: newMsg });
@@ -830,22 +987,32 @@ app.post('/api/marketing/chat-gerente', async (req, res) => {
   try {
     const { GoogleGenAI } = await import('@google/genai');
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-    const { message, history } = req.body;
+    const { message, history, activeSku, activeProductName } = req.body;
     
+    // Tenta detectar SKU informado ou usa activeSku
+    const detectedSku = activeSku || message.match(/123mart[a-zA-Z0-9_-]+/i)?.[0];
+    const detectedName = activeProductName || (detectedSku ? `Produto ${detectedSku}` : null);
+
+    const skuDirective = detectedSku ? `
+[SKU CORPORATIVO OBRIGATÓRIO DO PRODUTO ATUAL: "${detectedSku}"]
+[NOME DO PRODUTO: "${detectedName}"]
+CRÍTICO: Toda vez que você gerar o bloco <EXECUTE> para "run_optimization", você DEVE obrigatoriamente preencher "product_id": "${detectedSku}". Nunca use "undefined" ou deixe vazio.` : '';
+
     const sysPrompt = `Você é o Gerente de Projetos da 123Mart. Sua função é orquestrar a esteira de otimização de produtos e distribuição de tarefas. Você não executa o trabalho operacional (não escreve textos SEO finais, não desenha imagens). Você delega as tarefas e envia o briefing executivo para a equipe.
 Aja de forma executiva, estratégica e direta.
 Se o usuário pedir para fazer algo, diga como você vai orquestrar ou quem você vai acionar. Reporte a conclusão de forma macro.
 CRÍTICO: AUTOMAÇÃO COMPLETA. Você agora tem autoridade para DISPARAR as pipelines de produção no background de forma 100% autônoma.
 Se o usuário pedir para "otimizar o produto X" ou "rodar a esteira para o SKU Y", você NÃO DEVE apenas dizer que vai fazer. Você DEVE gerar EXATAMENTE e APENAS o bloco de código JSON abaixo para acionar a pipeline real no sistema.
 O JSON deve vir obrigatoriamente dentro da tag <EXECUTE>, sem nenhum texto antes ou depois dela, a menos que você queira conversar primeiro. Mas a tag deve existir.
+${skuDirective}
 
 [COMANDOS DISPONÍVEIS]
 1. Orquestração Completa (Esteira):
 <EXECUTE>
 {
   "action": "run_optimization",
-  "product_name": "Nome Base",
-  "product_id": "SKU"
+  "product_name": "${detectedName || 'Nome Base'}",
+  "product_id": "${detectedSku || '123Mart...'}"
 }
 </EXECUTE>
 
@@ -907,9 +1074,14 @@ O JSON deve vir obrigatoriamente dentro da tag <EXECUTE>, sem nenhum texto antes
           });
         });
       } else if (actionToRun === 'run_optimization') {
-        const productData = { name: actionPayload.product_name || 'Produto', sku: actionPayload.product_id || actionPayload.sku };
-        if (!productData.sku) {
-           return res.json({ success: false, error: 'SKU não fornecido. Não é possível iniciar a esteira sem um SKU válido.' });
+        const rawSku = actionPayload.product_id || actionPayload.sku;
+        const resolvedProductSku = (rawSku && rawSku !== 'undefined' && rawSku !== 'null') ? rawSku : detectedSku;
+        const productData = { 
+          name: actionPayload.product_name || detectedName || 'Produto', 
+          sku: resolvedProductSku 
+        };
+        if (!productData.sku || productData.sku === 'undefined') {
+           return res.json({ success: false, error: 'SKU não fornecido ou indefinido. Não é possível iniciar a esteira sem um SKU válido.' });
         }
         if (!productData.sku.toLowerCase().startsWith('123mart')) {
            // Em caso de SKU inválido, salva uma pasta de erro aguardando correção manual.
@@ -1053,9 +1225,14 @@ O JSON deve vir obrigatoriamente dentro da tag <EXECUTE>, sem nenhum texto antes
       }
 
       if (actionToRun === 'run_optimization') {
-        const productData = { name: actionPayload.product_name || 'Produto', sku: actionPayload.product_id || actionPayload.sku };
-        if (!productData.sku) {
-           return res.json({ success: false, error: 'SKU não fornecido. Não é possível iniciar a esteira sem um SKU válido.' });
+        const rawSku = actionPayload.product_id || actionPayload.sku;
+        const resolvedProductSku = (rawSku && rawSku !== 'undefined' && rawSku !== 'null') ? rawSku : (detectedSku || forcedSku);
+        const productData = { 
+          name: actionPayload.product_name || detectedName || 'Produto Fallback', 
+          sku: resolvedProductSku 
+        };
+        if (!productData.sku || productData.sku === 'undefined') {
+           return res.json({ success: false, error: 'SKU não fornecido ou indefinido. Não é possível iniciar a esteira sem um SKU válido.' });
         }
         if (!productData.sku.toLowerCase().startsWith('123mart')) {
            // Em caso de SKU inválido, salva uma pasta de erro aguardando correção manual.

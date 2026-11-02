@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, MoreVertical, Paperclip, Smile, Send, Check, CheckCheck, Clock } from 'lucide-react';
+import { Search, MoreVertical, Paperclip, Smile, Send, Check, CheckCheck, Clock, Tag, AlertCircle } from 'lucide-react';
 import axios from 'axios';
+import { useSku, extractSkuFromText, validateSkuFormat } from '../../contexts/SkuContext';
 
 export interface ChatMessage {
   id: string;
@@ -22,9 +23,26 @@ interface AgentContact {
   waitingOnTasks?: number;
 }
 
-export default function AgentWhatsApp({ currentAgentId, currentAgentName }: { currentAgentId: string, currentAgentName: string }) {
+interface AgentWhatsAppProps {
+  currentAgentId: string;
+  currentAgentName: string;
+  activeSku?: string | null;
+  activeProductName?: string | null;
+}
+
+export default function AgentWhatsApp({ 
+  currentAgentId, 
+  currentAgentName,
+  activeSku: propActiveSku,
+  activeProductName: propActiveProductName
+}: AgentWhatsAppProps) {
+  const { activeSku: contextSku, activeProductName: contextProductName, setActiveSku } = useSku();
+  const activeSku = propActiveSku ?? contextSku;
+  const activeProductName = propActiveProductName ?? contextProductName;
+
   const [activeContact, setActiveContact] = useState<string>('gerente');
   const [inputMessage, setInputMessage] = useState('');
+  const [skuWarning, setSkuWarning] = useState<string | null>(null);
   const [expandedMessages, setExpandedMessages] = useState<Record<string, boolean>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [allMessages, setAllMessages] = useState<ChatMessage[]>([]);
@@ -114,7 +132,25 @@ export default function AgentWhatsApp({ currentAgentId, currentAgentName }: { cu
     e.preventDefault();
     if (!inputMessage.trim()) return;
 
-    const tempMsg = inputMessage;
+    const tempMsg = inputMessage.trim();
+    setSkuWarning(null);
+
+    // Tenta detectar SKU digitado na própria mensagem (ex: 123Mart09015)
+    const detectedSku = extractSkuFromText(tempMsg);
+    let effectiveSku = activeSku;
+
+    if (detectedSku) {
+      effectiveSku = detectedSku;
+      setActiveSku(detectedSku);
+    }
+
+    // Se o contato for um agente de produção/gerência e a mensagem parece uma instrução de tarefa,
+    // verifica se temos um SKU válido.
+    const isTaskInstruction = /briefing|otimiza|planner|pesquis|concorr|anuncio|melhor|esteira|art|seo/i.test(tempMsg);
+    if (!effectiveSku && isTaskInstruction && activeContact !== 'diretoria') {
+      setSkuWarning('Aviso: Nenhum SKU ativo foi vinculado. Para garantir que o agente analise o produto correto, selecione o produto no seletor ou informe o SKU no formato 123Mart...');
+    }
+
     setInputMessage('');
 
     // Optimistic update
@@ -132,7 +168,9 @@ export default function AgentWhatsApp({ currentAgentId, currentAgentName }: { cu
       await axios.post('/api/marketing/agent-chats', {
         text: tempMsg,
         sender: currentAgentId,
-        receiver: activeContact
+        receiver: activeContact,
+        activeSku: effectiveSku,
+        activeProductName: activeProductName
       });
       fetchMessages(); // refresh to get real ID
     } catch (err) {
@@ -211,8 +249,25 @@ export default function AgentWhatsApp({ currentAgentId, currentAgentName }: { cu
               </span>
             </div>
           </div>
-          <div>
-             <Search className="w-5 h-5 text-slate-500 cursor-pointer" />
+          <div className="flex items-center gap-2">
+            {activeSku ? (
+              <div 
+                className="flex items-center gap-1.5 px-3 py-1 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-full text-xs font-semibold shadow-xs"
+                title={`SKU Ativo: ${activeSku}${activeProductName ? ` (${activeProductName})` : ''}`}
+              >
+                <Tag className="w-3.5 h-3.5 text-emerald-600" />
+                <span className="font-mono">SKU: {activeSku}</span>
+              </div>
+            ) : (
+              <div 
+                className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 border border-amber-200 text-amber-700 rounded-full text-xs font-medium"
+                title="Nenhum SKU ativo vinculado. Defina o SKU para alimentar os agentes."
+              >
+                <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
+                <span className="hidden sm:inline">Sem SKU Ativo</span>
+              </div>
+            )}
+            <Search className="w-5 h-5 text-slate-500 cursor-pointer ml-1" />
           </div>
         </div>
 
@@ -241,6 +296,21 @@ export default function AgentWhatsApp({ currentAgentId, currentAgentName }: { cu
           <div ref={messagesEndRef} />
         </div>
 
+        {skuWarning && (
+          <div className="px-4 py-2 bg-amber-50 border-t border-amber-200 text-amber-800 text-xs flex items-center justify-between z-10 animate-fadeIn">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>{skuWarning}</span>
+            </div>
+            <button 
+              onClick={() => setSkuWarning(null)} 
+              className="text-amber-600 hover:text-amber-900 font-bold ml-2 text-xs"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {/* Input */}
         <div className="h-[62px] bg-[#f0f2f5] flex items-center px-4 gap-3 shrink-0 relative z-10">
           <Smile className="w-6 h-6 text-slate-500 cursor-pointer shrink-0" />
@@ -249,8 +319,11 @@ export default function AgentWhatsApp({ currentAgentId, currentAgentName }: { cu
             <input 
               type="text" 
               value={inputMessage}
-              onChange={(e) => setInputMessage(e.target.value)}
-              placeholder="Digite uma mensagem" 
+              onChange={(e) => {
+                setInputMessage(e.target.value);
+                if (skuWarning) setSkuWarning(null);
+              }}
+              placeholder={activeSku ? `Digite uma mensagem para a equipe (SKU: ${activeSku})...` : "Digite uma mensagem (indique o SKU 123Mart...)"} 
               className="flex-1 bg-white border-none rounded-lg py-2.5 px-4 focus:outline-none text-[15px]"
             />
             {inputMessage.trim() ? (

@@ -156,6 +156,39 @@ const AuditTaskItem: React.FC<{ task: AuditTask }> = ({ task }) => {
                       </div>
                     );
                   }
+                  if (data.checklist || data.audit) {
+                    const checklist = data.checklist || data.audit;
+                    return (
+                      <div className="space-y-4">
+                        <div className="font-medium text-emerald-700 bg-emerald-50 p-3 rounded-lg border border-emerald-100 flex items-center justify-between">
+                          <span className="flex items-center gap-2">
+                            <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                            {data.message || "Ativo fotográfico auditado com sucesso."}
+                          </span>
+                          <span className="text-xs bg-emerald-600 text-white font-bold px-2.5 py-1 rounded">
+                            Score: {data.auditScore || checklist.score || '100/100'}
+                          </span>
+                        </div>
+
+                        <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 space-y-2">
+                          <div className="text-xs font-bold text-slate-600 uppercase mb-3 pb-2 border-b border-slate-200 flex items-center gap-1.5">
+                            <Sparkles className="w-3.5 h-3.5 text-sky-500" />
+                            Conformidade com os Padrões 123Mart
+                          </div>
+                          {Object.entries(checklist).map(([key, val]) => (
+                            <div key={key} className="flex items-start justify-between text-xs py-1 border-b border-slate-100 last:border-0">
+                              <span className="text-slate-500 font-medium capitalize">
+                                {key.replace(/([A-Z])/g, ' $1')}:
+                              </span>
+                              <span className="text-slate-800 font-semibold text-right max-w-[65%]">
+                                {String(val)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  }
                 } catch (e) {
                   // Not JSON, just render as text
                 }

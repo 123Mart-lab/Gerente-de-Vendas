@@ -32,6 +32,37 @@ function getSystemInstruction(stage: string): string {
   }
 }
 
+/**
+ * Extrai apenas a seção do AGENTS.md correspondente ao agente alvo,
+ * evitando injetar o manual da empresa inteira em cada mensagem de chat.
+ */
+function getTargetAgentPersona(receiverId: string, fullAgentsDoc: string): string {
+  if (!fullAgentsDoc) return 'Você é um agente corporativo da 123Mart.';
+  const mapping: Record<string, string> = {
+    'gerente': 'Gerente de Projetos',
+    'gerente-comercial': 'Gerente Comercial',
+    'vendedor-1': 'Vendedores',
+    'vendedor-2': 'Vendedores',
+    'pesquisador': 'Pesquisador de Mercado',
+    'monitor': 'Monitor de Concorrência',
+    'art': 'Social Media',
+    'copywriter': 'Redator',
+    'seo': 'Especialista SEO',
+    'merchant': 'Especialista Merchant',
+    'metrics': 'Analista de Métricas',
+    'social': 'Social Media',
+    'finance': 'Analista Financeiro'
+  };
+
+  const targetName = mapping[receiverId.toLowerCase()] || receiverId;
+  const sections = fullAgentsDoc.split(/(?=##\s+\d+\.)/);
+  const matched = sections.find(s => s.toLowerCase().includes(targetName.toLowerCase()));
+  if (matched) {
+    return matched.trim();
+  }
+  return fullAgentsDoc.slice(0, 800);
+}
+
 // ==========================================
 // MÁQUINA DE ESTADOS: TOOLS DO GEMINI
 // ==========================================
@@ -94,7 +125,7 @@ export const aiService = {
     try {
       // 4. Primeira chamada da API do Gemini injetando as Ferramentas (Tools)
       let response = await ai.models.generateContent({
-        model: 'gemini-3.7-flash',
+        model: 'gemini-3.8-flash',
         contents,
         config: {
           systemInstruction,
@@ -129,7 +160,7 @@ export const aiService = {
 
         // 6. Rechama o Gemini com o contexto atualizado para ele gerar a resposta final em texto
         response = await ai.models.generateContent({
-          model: 'gemini-3.7-flash',
+          model: 'gemini-3.8-flash',
           contents,
           config: { systemInstruction, tools: crmTools, temperature: 0.1 }
         });
@@ -162,7 +193,7 @@ Por favor, faça um levantamento sobre:
 - Informações sobre frete e condições de pagamento oferecidas.`;
 
     const plannerResult = await ai.models.generateContent({
-      model: 'gemini-3.7-flash',
+      model: 'gemini-3.8-flash',
       contents: plannerPrompt,
       config: { temperature: 0.5 }
     });
@@ -180,7 +211,7 @@ Defina uma estratégia de benchmark:
 - Quais diferenciais devemos oferecer (ex: frete expresso, brindes) para superar essa concorrência?`;
 
     const monitorResult = await ai.models.generateContent({
-      model: 'gemini-3.7-flash',
+      model: 'gemini-3.8-flash',
       contents: monitorPrompt,
       config: { temperature: 0.5 }
     });
@@ -204,7 +235,7 @@ Para validar essa estratégia e chegar ao preço mínimo de venda viável (Break
 Faça os cálculos de viabilidade (markup/markdown) com base nessas premissas financeiras reais. Diga se a estratégia de preço proposta pelo Monitor de Concorrência é viável financeiramente, ou sugira qual deve ser o preço exato para atingir a margem desejada.`;
 
     const financeResult = await ai.models.generateContent({
-      model: 'gemini-3.7-flash',
+      model: 'gemini-3.8-flash',
       contents: financePrompt,
       config: { temperature: 0.5 }
     });
@@ -244,13 +275,13 @@ Faça os cálculos de viabilidade (markup/markdown) com base nessas premissas fi
 
     // 1. Pesquisador (Planner)
     const plannerPrompt = buildPlannerPrompt(productData, realTrends);
-    const plannerResult = await ai.models.generateContent({ model: 'gemini-3.7-flash', contents: plannerPrompt, config: { temperature: 0.5 } });
+    const plannerResult = await ai.models.generateContent({ model: 'gemini-3.8-flash', contents: plannerPrompt, config: { temperature: 0.5 } });
     const plannerResponse = plannerResult.text;
     if (onStepComplete) onStepComplete('planner', plannerPrompt, plannerResponse || '');
 
     // 2. Monitor de Inteligência Competitiva
     const monitorPrompt = buildMonitorPrompt(productData, realQuotes, plannerResponse);
-    const monitorResult = await ai.models.generateContent({ model: 'gemini-3.7-flash', contents: monitorPrompt, config: { temperature: 0.5 } });
+    const monitorResult = await ai.models.generateContent({ model: 'gemini-3.8-flash', contents: monitorPrompt, config: { temperature: 0.5 } });
     const monitorResponse = monitorResult.text;
     if (onStepComplete) onStepComplete('monitor', monitorPrompt, monitorResponse || '');
 
@@ -264,7 +295,7 @@ Produto: ${productData.name}
 MISSÃO PRINCIPAL:
 Atuar como o Especialista de Design Gráfico, Diagramador de Conversão e Engenheiro de Onboarding de SKUs da 123Mart. Sua missão é traduzir SKUs físicos em dossiês de alta conversão, gerar matrizes fotográficas de cenário (Slots 2 a 7) via Strict Compositing e estruturar ativos visuais autossuficientes que retenham a atenção total do cliente, impedindo a fuga para anúncios concorrentes.
 
-REGRAS INE GOCIÁVEIS (O PADRÃO 123MART):
+REGRAS INEGOCIÁVEIS (O PADRÃO 123MART):
 1. O PRODUTO E A ESCALA (FOTOMONTAGEM RIGOROSA):
    - O produto da "Imagem 1" é a Lei Absoluta; é PROIBIDO sintetizar ou alterar embalagens via IA.
    - Atue em modo "Compositing", preservando 100% da anatomia original (cor, tampa, rótulo).
@@ -318,27 +349,24 @@ FASE 3: MOTOR DE RETENÇÃO (VÍDEO)
 CHECKLIST DE SAÍDA OBRIGATÓRIO NO FINAL:
 "Confirmando: 1. Strict Compositing; 2. Nano Banana 2 (Texto entre ""); 3. Título < 60 carac.; 4. Slot 1 Fundo Branco; 5. Formato 1:1."`;
     
-    const artResult = await ai.models.generateContent({ model: 'gemini-3.7-flash', contents: artPrompt, config: { temperature: 0.7 } });
+    const artResult = await ai.models.generateContent({ model: 'gemini-3.8-flash', contents: artPrompt, config: { temperature: 0.7 } });
     const artResponse = artResult.text;
     if (onStepComplete) onStepComplete('art', artPrompt, artResponse || '');
 
-    // 4. Especialista SEO
+    // 4. Especialista SEO (recebe inteligência de produto e precificação sem sobrecarga técnica visual)
     const seoSystemContext = `[DIRETRIZ MESTRA DE OTIMIZAÇÃO]
 Dados da Pesquisa do Planner:
 ${plannerResponse}
 
 Estratégia do Monitor:
-${monitorResponse}
-
-Direção de Arte:
-${artResponse}`;
+${monitorResponse}`;
 
     const seoPrompt = `[ORDEM DE SERVIÇO - GERÊNCIA DE PROJETOS]
 Agente: Especialista SEO Sênior
 SKU de Referência: ${productData.sku}
 
 Você é um Especialista SEO Sênior focado em conversão.
-Sua atitude: Você recebe a estratégia visual e de precificação da equipe, gera todos os campos otimizados (Título Estratégico max 70 chars, Descrição com Quebra de Objeções, Meta tags, HTML válido), salva na plataforma e responde com o comparativo do Antes e Depois para o SKU ${productData.sku}.
+Sua atitude: Você recebe a estratégia de mercado e precificação da equipe, gera todos os campos otimizados (Título Estratégico max 70 chars, Descrição com Quebra de Objeções, Meta tags, HTML válido), salva na plataforma e responde com o comparativo do Antes e Depois para o SKU ${productData.sku}.
 
 [CONTEXTO DA EQUIPE]
 ${seoSystemContext}`;
@@ -364,7 +392,7 @@ ${seoSystemContext}`;
 
     if (onStepComplete) onStepComplete('seo', seoPrompt, seoResponsePayloadJSON);
 
-    // 5. Gerente de Projetos (Synthesizer - Briefing Final)
+    // 5. Gerente de Projetos (Synthesizer - Briefing Final Executivo)
     const managerPrompt = `[SÍNTESE EXECUTIVA - GERÊNCIA DE PROJETOS]
 SKU de Referência: ${productData.sku}
 
@@ -374,10 +402,12 @@ Você é o Gerente de Projetos de E-commerce Sênior. Sua função é orquestrar
 ${plannerResponse}
 [INTELIGÊNCIA DO MONITOR]
 ${monitorResponse}
-[ARTE]
+[FRAMEWORK VISUAL APROVADO]
 ${artResponse}
-[SEO]
-${seoResponsePayloadJSON}
+[RESUMO DO SEO GERADO]
+- Título Otimizado: ${seoJson?.novoTitulo || productData.name}
+- Meta Description: ${seoJson?.metaDescription || ''}
+- Diferenciais de Conversão: ${seoJson?.dicasMelhoria?.join(', ') || 'Copy persuasiva com gatilhos de valor'}
 
 SUA MISSÃO:
 Crie o BRIEFING MESTRE definitivo. Este documento será empacotado e enviado via Webhook para sistemas automáticos (como o MeliAgent).
@@ -390,7 +420,7 @@ Estruture o briefing com os seguintes tópicos obrigatórios:
 
 Seja executivo, imperativo e direto. Este é o pacote final de produção.`;
 
-    const managerResult = await ai.models.generateContent({ model: 'gemini-3.7-flash', contents: managerPrompt, config: { temperature: 0.7 } });
+    const managerResult = await ai.models.generateContent({ model: 'gemini-3.8-flash', contents: managerPrompt, config: { temperature: 0.7 } });
     const managerResponse = managerResult.text;
     if (onStepComplete) onStepComplete('manager', managerPrompt, managerResponse || '');
   },
@@ -427,7 +457,7 @@ Retorne ESTRITAMENTE um JSON puro no seguinte formato:
 
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-3.7-flash',
+        model: 'gemini-3.8-flash',
         contents: prompt,
         config: {
           temperature: 0.7,
@@ -470,7 +500,7 @@ Retorne ESTRITAMENTE um JSON puro no seguinte formato (invente dados realistas e
 
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-3.7-flash',
+        model: 'gemini-3.1-flash-lite',
         contents: prompt,
         config: {
           temperature: 0.5,
@@ -514,7 +544,7 @@ Retorne ESTRITAMENTE um JSON puro no seguinte formato (invente dados extremament
 
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-3.7-flash',
+        model: 'gemini-3.1-flash-lite',
         contents: prompt,
         config: {
           temperature: 0.3,
@@ -595,7 +625,7 @@ Retorne ESTRITAMENTE um JSON puro com o seguinte formato:
 
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-3.7-flash',
+        model: 'gemini-3.8-flash',
         contents: prompt,
         config: {
           temperature: 0.6,
@@ -696,9 +726,8 @@ Formato obrigatório de retorno (JSON puro):
 }`;
 
     try {
-      // Usando a versão Pro estável mais recente
       const response = await ai.models.generateContent({
-        model: 'gemini-3.7-flash',
+        model: 'gemini-3.8-flash',
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         config: {
           systemInstruction,
@@ -800,12 +829,13 @@ Formato obrigatório de retorno (JSON puro):
       const settings = await firebaseService.getSettings();
       const hasNuvemshopApi = settings?.agentPermissions?.[receiver]?.['nuvemshop-api'] === true;
 
-      // Lê as personas do arquivo AGENTS.md
-      let agentsPersona = '';
+      // Lê e extrai apenas a persona específica do agente alvo (evitando injetar manual inteiro)
+      let targetPersona = '';
       try {
         const agentsPath = path.join(process.cwd(), 'AGENTS.md');
         if (fs.existsSync(agentsPath)) {
-          agentsPersona = fs.readFileSync(agentsPath, 'utf8');
+          const agentsDoc = fs.readFileSync(agentsPath, 'utf8');
+          targetPersona = getTargetAgentPersona(receiver, agentsDoc);
         }
       } catch (err) {
         console.error('Erro ao ler AGENTS.md', err);
@@ -819,30 +849,23 @@ Formato obrigatório de retorno (JSON puro):
 ` : '';
 
       // Constrói o contexto para o Gemini
-      const prompt = `Você faz parte de uma equipe de Agentes de Inteligência Artificial da empresa 123Mart.
-Abaixo está o manual de personas da equipe:
+      const prompt = `Você faz parte de uma equipe de Agentes de IA da empresa 123Mart.
+Sua Diretriz / Persona Oficial:
 ---
-${agentsPersona}
+${targetPersona}
 ---
 
 ${skuDirective}
 
 O seu ID de agente é: "${receiver}". Assuma a persona, a atitude e as ferramentas correspondentes ao seu ID. 
-Você acabou de receber uma mensagem do agente/usuário de ID: "${sender}".
+Você acabou de receber uma mensagem de: "${sender}".
 
-A mensagem recebida foi:
+Mensagem recebida:
 "${text}"
 
-Por favor, responda a esta mensagem. Mantenha a atitude da sua persona, e caso a ordem fuja do seu escopo, negue educadamente ou direcione ao agente correto.
-Responda diretamente, sem aspas e sem cabeçalhos, apenas o texto da sua resposta. Se você for o Gerente de Projetos e a ordem for para outro agente, aja de acordo enviando a instrução para o próximo agente com o SKU correspondente (informe na mensagem que você vai cobrar o próximo agente).
-
-[IMPORTANTE - REPASSE DE MENSAGENS]:
-Se você (como Gerente de Projetos ou qualquer outro agente) precisar acionar outro agente da equipe, você DEVE gerar na sua resposta a tag de encaminhamento. 
-O sistema de backend interceptará essa tag e enviará a mensagem ao outro agente.
-Aqui estão os IDs oficiais dos agentes que você pode usar: diretoria, gerente, pesquisador, seo, monitor, art, copywriter, social, ads, merchant, metrics, finance.
-Formato exato e obrigatório da tag (coloque isso no final da sua resposta):
-[ENCAMINHAR_PARA: id_do_agente] Mensagem que você quer enviar para ele (incluindo o SKU de referência)...
-Exemplo: [ENCAMINHAR_PARA: pesquisador] Olá pesquisador, realize a pesquisa e levantamento de concorrentes para o SKU ${resolvedSku || '123Mart...'} do produto ${resolvedProductName || '...'} imediatamente.`;
+Responda diretamente e de forma concisa. Se você for o Gerente de Projetos e a ordem for para outro agente, use a tag [ENCAMINHAR_PARA: id_do_agente].
+IDs oficiais disponíveis: diretoria, gerente, pesquisador, seo, monitor, art, copywriter, social, ads, merchant, metrics, finance.
+Exemplo: [ENCAMINHAR_PARA: pesquisador] Olá pesquisador, realize a pesquisa e levantamento para o SKU ${resolvedSku || '123Mart...'}.`;
 
       const tools = [{
         functionDeclarations: [
@@ -881,10 +904,10 @@ Exemplo: [ENCAMINHAR_PARA: pesquisador] Olá pesquisador, realize a pesquisa e l
       let shouldContinue = true;
       let loopCount = 0;
 
-      while (shouldContinue && loopCount < 5) {
+      while (shouldContinue && loopCount < 2) {
         loopCount++;
         const response = await ai.models.generateContent({
-          model: 'gemini-3.7-flash',
+          model: 'gemini-3.8-flash',
           contents,
           config: {
             temperature: 0.7,
@@ -964,7 +987,7 @@ Exemplo: [ENCAMINHAR_PARA: pesquisador] Olá pesquisador, realize a pesquisa e l
 
   async generateText(prompt: string) {
     const res = await ai.models.generateContent({
-      model: 'gemini-3.7-flash',
+      model: 'gemini-3.8-flash',
       contents: [{ role: 'user', parts: [{ text: prompt }] }]
     });
     return res.text;

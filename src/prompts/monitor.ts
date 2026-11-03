@@ -17,7 +17,7 @@ CONTEXTO PSICOLÓGICO DA DEMANDA (Fornecido pelo Planner):
 ${plannerResponse}
 
 DIRETRIZ DE EXECUÇÃO (CONTRATO DE OUTPUT OBRIGATÓRIO):
-Sua entrega será lida pela Diretoria (CEO) e pelo Analista Financeiro. Você DEVE gerar uma análise EXPLORATÓRIA, DENSA e ALTAMENTE DETALHADA. É ESTRITAMENTE PROIBIDO entregar relatórios curtos ou sucintos. Elabore extensivamente sobre cada ponto com riqueza de cálculos matemáticos.
+Sua entrega será lida pela Diretoria (CEO) e pelo Analista Financeiro. Seja cirúrgico, conciso e orientado a números. Apresente tabelas claras, cálculos de piso/teto e recomendações objetivas sem enrolação.
 Você DEVE estruturar o relatório utilizando tabelas Markdown e lógica matemática. Siga EXATAMENTE a arquitetura abaixo:
 
 ### 1. Benchmark de Precificação (Content API for Shopping)
@@ -33,5 +33,5 @@ Você DEVE estruturar o relatório utilizando tabelas Markdown e lógica matemá
 - Qual a recomendação comercial exata? (Ex: "Abaixar 5% para quebrar a barreira psicológica de X", "Manter o preço, mas adicionar Bônus Y para aumentar valor percebido").
 - Como criar o "Efeito Ancoragem" e manipular a percepção de valor na página de vendas para que o nosso preço pareça irrisório perto dos benefícios.
 
-Execute com precisão matemática. Seja frio, calculista e agressivo comercialmente.`;
+Execute com precisão matemática, sem introduções nem conclusões vazias. Entregue diretamente os dados e tabelas.`;
 }

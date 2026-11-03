@@ -1,6 +1,6 @@
 {
-  "name": "",
-  "description": "",
+  "name": "Gerente 123Mart",
+  "description": "Sistema de Inteligência e Orquestração de E-commerce 123Mart Brain",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

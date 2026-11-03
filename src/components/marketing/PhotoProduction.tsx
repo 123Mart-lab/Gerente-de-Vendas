@@ -109,8 +109,11 @@ export default function PhotoProduction() {
           }
 
           if (briefingsRes.status === 'fulfilled' && briefingsRes.value?.data) {
-            const allBriefings = briefingsRes.value.data;
-            const current = allBriefings[targetSku] || allBriefings['123Mart09078'] || allBriefings['123Mart09015'] || null;
+            const rawBriefings = briefingsRes.value.data;
+            const allBriefings = Array.isArray(rawBriefings)
+              ? Object.fromEntries(rawBriefings.map((b: any) => [b.sku, b]))
+              : rawBriefings;
+            const current = allBriefings[targetSku] || allBriefings['123Mart09168'] || allBriefings['123Mart09078'] || allBriefings['123Mart09015'] || null;
             setWorkflowBriefing(current);
           }
         }

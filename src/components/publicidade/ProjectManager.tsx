@@ -609,6 +609,53 @@ function OtimizacaoAnuncios() {
           </button>
         </div>
 
+        {/* Atalhos Rápidos de SKU para Teste e Orquestração */}
+        <div className="flex flex-wrap items-center gap-2 mt-3 text-xs">
+          <span className="font-bold text-slate-500">Atalhos rápidos para orquestração:</span>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveSku('123Mart09168', 'Germicida Desinfetante Frutas Legumes Utensílios de Maternidade e Lacteos');
+              setSearchTerm('Germicida Desinfetante Frutas Legumes Utensílios de Maternidade e Lacteos');
+            }}
+            className={`px-3 py-1.5 rounded-lg font-bold border transition-all ${
+              activeSku === '123Mart09168'
+                ? 'bg-sky-600 text-white border-sky-600 shadow-xs'
+                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            ★ Qualifood Germicida (123Mart09168)
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveSku('123Mart09078', 'Base Para Amaciante Tuff Rende 15L Qualidade Escolha Perfume');
+              setSearchTerm('Base Para Amaciante Tuff Rende 15L Qualidade Escolha Perfume');
+            }}
+            className={`px-3 py-1.5 rounded-lg font-bold border transition-all ${
+              activeSku === '123Mart09078'
+                ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            Base Amaciante Tuff (123Mart09078)
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveSku('123Mart09015', 'Limpador Flotador Azulim 500ml Spray');
+              setSearchTerm('Limpador Flotador Azulim 500ml Spray');
+            }}
+            className={`px-3 py-1.5 rounded-lg font-bold border transition-all ${
+              activeSku === '123Mart09015'
+                ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            Flotador Azulim (123Mart09015)
+          </button>
+        </div>
+
         {/* Communication and Workflow WhatsApp UI */}
         <div className="mt-8 border-t border-slate-100 pt-6">
           <AgentWhatsApp 

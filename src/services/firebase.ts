@@ -80,7 +80,11 @@ function loadLocalData(filename: string, defaultVal: any) {
 function saveLocalData(filename: string, data: any) {
   try {
     const file = path.join(DATA_DIR, filename);
-    fs.writeFileSync(file, JSON.stringify(data, null, 2));
+    const serialized = JSON.stringify(data, null, 2);
+    if (fs.existsSync(file) && fs.readFileSync(file, 'utf8') === serialized) {
+      return;
+    }
+    fs.writeFileSync(file, serialized);
   } catch (e) {}
 }
 

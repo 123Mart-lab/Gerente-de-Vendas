@@ -2911,7 +2911,19 @@ ${skuDirective}
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        watch:
+          process.env.DISABLE_HMR === 'true'
+            ? null
+            : {
+                ignored: [
+                  '**/.data/**',
+                  '**/.data',
+                  '**/public/assets/generated/**',
+                ],
+              },
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);

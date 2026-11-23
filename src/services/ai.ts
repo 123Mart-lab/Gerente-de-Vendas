@@ -21,6 +21,7 @@ import sharp from 'sharp';
 import { nuvemshopService } from './nuvemshop.js';
 import { firebaseService } from './firebase.js';
 import { buildSeoExpertPrompt } from '../prompts/seoExpert.js';
+import { generateContentWithRetry } from './geminiRetry.js';
 
 export interface CommercialSafetyAlert {
   blockedAutoSave: boolean;
@@ -244,14 +245,18 @@ export const aiService = {
     try {
       const client = getAiClient();
       // 4. Primeira chamada da API do Gemini injetando as Ferramentas (Tools)
-      let response = await client.models.generateContent({
-        model: 'gemini-4-hydrogen',
-        contents,
-        config: {
-          systemInstruction,
-          tools: crmTools,
-        }
-      });
+      let response = await generateContentWithRetry(
+        client,
+        {
+          model: 'gemini-4-hydrogen',
+          contents,
+          config: {
+            systemInstruction,
+            tools: crmTools,
+          }
+        },
+        { label: 'WhatsApp Sales Agent (1)' }
+      );
       
       // 5. Verifica se o Gemini decidiu usar uma das Ferramentas (Máquina de Estados / ERP)
       if (response.functionCalls && response.functionCalls.length > 0) {
@@ -278,11 +283,15 @@ export const aiService = {
         contents.push({ role: 'user', parts: [{ functionResponse: { name: call.name, response: toolResult } }] });
 
         // 6. Rechama o Gemini com o contexto atualizado para ele gerar a resposta final em texto
-        response = await client.models.generateContent({
-          model: 'gemini-4-hydrogen',
-          contents,
-          config: { systemInstruction, tools: crmTools }
-        });
+        response = await generateContentWithRetry(
+          client,
+          {
+            model: 'gemini-4-hydrogen',
+            contents,
+            config: { systemInstruction, tools: crmTools }
+          },
+          { label: 'WhatsApp Sales Agent (2)' }
+        );
       }
 
       return response.text || 'Tive um pequeno problema processando sua solicitação. Pode repetir?';
@@ -312,10 +321,14 @@ Por favor, faça um levantamento sobre:
 - Informações sobre frete e condições de pagamento oferecidas.`;
 
     const client = getAiClient();
-    const plannerResult = await client.models.generateContent({
-      model: 'gemini-4-hydrogen',
-      contents: plannerPrompt,
-    });
+    const plannerResult = await generateContentWithRetry(
+      client,
+      {
+        model: 'gemini-4-hydrogen',
+        contents: plannerPrompt,
+      },
+      { label: 'Pesquisa Mercado (Planner)' }
+    );
     const plannerResponse = plannerResult.text;
     if (onStepComplete) onStepComplete('planner', plannerPrompt, plannerResponse || '');
 
@@ -329,10 +342,14 @@ Defina uma estratégia de benchmark:
 - Qual deve ser nosso preço alvo para sermos competitivos?
 - Quais diferenciais devemos oferecer (ex: frete expresso, brindes) para superar essa concorrência?`;
 
-    const monitorResult = await client.models.generateContent({
-      model: 'gemini-4-hydrogen',
-      contents: monitorPrompt,
-    });
+    const monitorResult = await generateContentWithRetry(
+      client,
+      {
+        model: 'gemini-4-hydrogen',
+        contents: monitorPrompt,
+      },
+      { label: 'Pesquisa Mercado (Monitor)' }
+    );
     const monitorResponse = monitorResult.text;
     if (onStepComplete) onStepComplete('monitor', monitorPrompt, monitorResponse || '');
 
@@ -352,10 +369,14 @@ Para validar essa estratégia e chegar ao preço mínimo de venda viável (Break
 
 Faça os cálculos de viabilidade (markup/markdown) com base nessas premissas financeiras reais. Diga se a estratégia de preço proposta pelo Monitor de Concorrência é viável financeiramente, ou sugira qual deve ser o preço exato para atingir a margem desejada.`;
 
-    const financeResult = await client.models.generateContent({
-      model: 'gemini-4-hydrogen',
-      contents: financePrompt,
-    });
+    const financeResult = await generateContentWithRetry(
+      client,
+      {
+        model: 'gemini-4-hydrogen',
+        contents: financePrompt,
+      },
+      { label: 'Pesquisa Mercado (Financeiro)' }
+    );
     const financeResponse = financeResult.text;
     if (onStepComplete) onStepComplete('finance', financePrompt, financeResponse || '');
 
@@ -442,14 +463,18 @@ Retorne ESTRITAMENTE um JSON puro com este formato:
   "kitMismatchNote": "Se o título cadastrado sugerir kit/caixa múltipla (ex: 6X1L) mas a foto mostrar apenas 1 unidade ou o preço parecer de unidade única, explique objetivamente aqui; caso contrário deixe vazio."
 }`;
 
-      const response = await client.models.generateContent({
-        model: 'gemini-4-hydrogen',
-        contents: [{ role: 'user', parts: [...imageParts, { text: auditPrompt }] }],
-        config: {
-          responseMimeType: 'application/json',
-          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+      const response = await generateContentWithRetry(
+        client,
+        {
+          model: 'gemini-4-hydrogen',
+          contents: [{ role: 'user', parts: [...imageParts, { text: auditPrompt }] }],
+          config: {
+            responseMimeType: 'application/json',
+            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          },
         },
-      });
+        { label: `Etapa 0 Auditoria Visual (${productData?.sku || 'SKU'})` }
+      );
 
       const parsed = parseSafeJson<Partial<ProductVisualAudit>>(response.text || '{}', {});
       const cleanManuf =
@@ -507,13 +532,17 @@ Retorne ESTRITAMENTE um JSON puro com este formato:
     const client = getAiClient();
     const prompt = buildManagerBriefingPrompt(productData, plannerSummary, monitorSummary, officialBrand, visualAudit);
 
-    const result = await client.models.generateContent({
-      model: 'gemini-4-hydrogen',
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      config: {
-        responseMimeType: 'application/json',
+    const result = await generateContentWithRetry(
+      client,
+      {
+        model: 'gemini-4-hydrogen',
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        config: {
+          responseMimeType: 'application/json',
+        },
       },
-    });
+      { label: `Etapa 3 Gerente Briefing (${productData?.sku || 'SKU'})` }
+    );
 
     const preferredManufacturer = visualAudit?.verifiedManufacturer || officialBrand;
 
@@ -648,18 +677,22 @@ Retorne ESTRITAMENTE um JSON puro com este formato:
     const promptText = buildArtDirectorPlanPrompt(productData, managerBriefing, imagesMeta);
     const officialBrand = managerBriefing?.officialBrand || productData.brand || 'Marca Oficial';
 
-    const result = await client.models.generateContent({
-      model: 'gemini-4-hydrogen',
-      contents: [
-        {
-          role: 'user',
-          parts: [...imageParts, { text: promptText }],
+    const result = await generateContentWithRetry(
+      client,
+      {
+        model: 'gemini-4-hydrogen',
+        contents: [
+          {
+            role: 'user',
+            parts: [...imageParts, { text: promptText }],
+          },
+        ],
+        config: {
+          responseMimeType: 'application/json',
         },
-      ],
-      config: {
-        responseMimeType: 'application/json',
       },
-    });
+      { label: `Etapa 4 Plano 8 Slots (${productData?.sku || 'SKU'})` }
+    );
 
     const parsed = parseSafeJson<Partial<ArtDirectionPlan>>(result.text || '{}', {});
     const rawSlots = Array.isArray(parsed.slots) ? parsed.slots : [];
@@ -715,13 +748,17 @@ Retorne ESTRITAMENTE um JSON puro com este formato:
       totalValidImages
     );
 
-    const result = await client.models.generateContent({
-      model: 'gemini-4-hydrogen',
-      contents: [{ role: 'user', parts: [{ text: promptText }] }],
-      config: {
-        responseMimeType: 'application/json',
+    const result = await generateContentWithRetry(
+      client,
+      {
+        model: 'gemini-4-hydrogen',
+        contents: [{ role: 'user', parts: [{ text: promptText }] }],
+        config: {
+          responseMimeType: 'application/json',
+        },
       },
-    });
+      { label: `Revisão Slot ${currentSlot.slotNumber} (${productData?.sku || 'SKU'})` }
+    );
 
     const parsed = parseSafeJson<Partial<ArtSlotPlan>>(result.text || '{}', currentSlot);
     const normalized = validateAndNormalizeArtSlot(
@@ -807,10 +844,14 @@ Retorne ESTRITAMENTE um JSON puro com este formato:
 
     // ETAPA 1: Pesquisador de Mercado (Planner) — agora ancorado na Auditoria Visual real
     const plannerPrompt = buildPlannerPrompt(productData, realTrends, visualAudit);
-    const plannerResult = await client.models.generateContent({
-      model: 'gemini-3.1-flash-lite',
-      contents: plannerPrompt,
-    });
+    const plannerResult = await generateContentWithRetry(
+      client,
+      {
+        model: 'gemini-3.1-flash-lite',
+        contents: plannerPrompt,
+      },
+      { label: `Etapa 1 Planner (${productData?.sku || 'SKU'})` }
+    );
     const plannerResponse = plannerResult.text || '';
     if (plannerResult.usageMetadata) {
       const u = normalizeUsage(plannerResult.usageMetadata);
@@ -826,10 +867,14 @@ Retorne ESTRITAMENTE um JSON puro com este formato:
 
     // ETAPA 2: Monitor de Inteligência Competitiva — ancorado na Auditoria Visual real
     const monitorPrompt = buildMonitorPrompt(productData, realQuotes, plannerSummary, visualAudit);
-    const monitorResult = await client.models.generateContent({
-      model: 'gemini-3.1-flash-lite',
-      contents: monitorPrompt,
-    });
+    const monitorResult = await generateContentWithRetry(
+      client,
+      {
+        model: 'gemini-3.1-flash-lite',
+        contents: monitorPrompt,
+      },
+      { label: `Etapa 2 Monitor (${productData?.sku || 'SKU'})` }
+    );
     const monitorResponse = monitorResult.text || '';
     if (monitorResult.usageMetadata) {
       const u = normalizeUsage(monitorResult.usageMetadata);
@@ -1106,24 +1151,28 @@ Retorne ESTRITAMENTE um JSON puro no seguinte formato:
 
     try {
       const client = getAiClient();
-      const response = await client.models.generateContent({
-        model: 'gemini-4-hydrogen',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: "OBJECT",
-            properties: {
-              hook: { type: "STRING" },
-              body: { type: "STRING" },
-              cta: { type: "STRING" },
-              visualSuggestions: { type: "STRING" },
-              hashtags: { type: "STRING" }
-            },
-            required: ["hook", "body", "cta", "visualSuggestions", "hashtags"]
+      const response = await generateContentWithRetry(
+        client,
+        {
+          model: 'gemini-4-hydrogen',
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: "OBJECT",
+              properties: {
+                hook: { type: "STRING" },
+                body: { type: "STRING" },
+                cta: { type: "STRING" },
+                visualSuggestions: { type: "STRING" },
+                hashtags: { type: "STRING" }
+              },
+              required: ["hook", "body", "cta", "visualSuggestions", "hashtags"]
+            }
           }
-        }
-      });
+        },
+        { label: `Social Media (${platform})` }
+      );
       return JSON.parse(response.text || '{}');
     } catch (err: any) {
       console.error('Erro ao gerar conteúdo viral:', err);
@@ -1149,24 +1198,28 @@ Retorne ESTRITAMENTE um JSON puro no seguinte formato (invente dados realistas e
 
     try {
       const client = getAiClient();
-      const response = await client.models.generateContent({
-        model: 'gemini-3.1-flash-lite',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: "OBJECT",
-            properties: {
-              topKeywords: { type: "ARRAY", items: { type: "STRING" } },
-              averagePrice: { type: "NUMBER" },
-              highDemandFeatures: { type: "ARRAY", items: { type: "STRING" } },
-              marketSentiment: { type: "STRING" },
-              competitorGaps: { type: "ARRAY", items: { type: "STRING" } }
-            },
-            required: ["topKeywords", "averagePrice", "highDemandFeatures", "marketSentiment", "competitorGaps"]
+      const response = await generateContentWithRetry(
+        client,
+        {
+          model: 'gemini-3.1-flash-lite',
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: "OBJECT",
+              properties: {
+                topKeywords: { type: "ARRAY", items: { type: "STRING" } },
+                averagePrice: { type: "NUMBER" },
+                highDemandFeatures: { type: "ARRAY", items: { type: "STRING" } },
+                marketSentiment: { type: "STRING" },
+                competitorGaps: { type: "ARRAY", items: { type: "STRING" } }
+              },
+              required: ["topKeywords", "averagePrice", "highDemandFeatures", "marketSentiment", "competitorGaps"]
+            }
           }
-        }
-      });
+        },
+        { label: 'Pesquisa Trends' }
+      );
       const parsedTrends = JSON.parse(response.text || '{}');
       if (response.usageMetadata) {
         parsedTrends._tokens = response.usageMetadata;
@@ -1197,46 +1250,50 @@ Retorne ESTRITAMENTE um JSON puro no seguinte formato (invente dados extremament
 
     try {
       const client = getAiClient();
-      const response = await client.models.generateContent({
-        model: 'gemini-3.1-flash-lite',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: "OBJECT",
-            properties: {
-              minPrice: { type: "NUMBER" },
-              maxPrice: { type: "NUMBER" },
-              averagePrice: { type: "NUMBER" },
-              googleShopping: {
-                type: "ARRAY",
-                items: {
-                  type: "OBJECT",
-                  properties: {
-                    store: { type: "STRING" },
-                    price: { type: "NUMBER" },
-                    link: { type: "STRING" }
-                  },
-                  required: ["store", "price", "link"]
+      const response = await generateContentWithRetry(
+        client,
+        {
+          model: 'gemini-3.1-flash-lite',
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: "OBJECT",
+              properties: {
+                minPrice: { type: "NUMBER" },
+                maxPrice: { type: "NUMBER" },
+                averagePrice: { type: "NUMBER" },
+                googleShopping: {
+                  type: "ARRAY",
+                  items: {
+                    type: "OBJECT",
+                    properties: {
+                      store: { type: "STRING" },
+                      price: { type: "NUMBER" },
+                      link: { type: "STRING" }
+                    },
+                    required: ["store", "price", "link"]
+                  }
+                },
+                buscape: {
+                  type: "ARRAY",
+                  items: {
+                    type: "OBJECT",
+                    properties: {
+                      store: { type: "STRING" },
+                      price: { type: "NUMBER" },
+                      link: { type: "STRING" }
+                    },
+                    required: ["store", "price", "link"]
+                  }
                 }
               },
-              buscape: {
-                type: "ARRAY",
-                items: {
-                  type: "OBJECT",
-                  properties: {
-                    store: { type: "STRING" },
-                    price: { type: "NUMBER" },
-                    link: { type: "STRING" }
-                  },
-                  required: ["store", "price", "link"]
-                }
-              }
-            },
-            required: ["minPrice", "maxPrice", "averagePrice", "googleShopping", "buscape"]
+              required: ["minPrice", "maxPrice", "averagePrice", "googleShopping", "buscape"]
+            }
           }
-        }
-      });
+        },
+        { label: 'Pesquisa Cotações' }
+      );
       const parsedQuotes = JSON.parse(response.text || '{}');
       if (response.usageMetadata) {
         parsedQuotes._tokens = response.usageMetadata;
@@ -1282,10 +1339,12 @@ Retorne ESTRITAMENTE um JSON puro com o seguinte formato:
 
     try {
       const client = getAiClient();
-      const response = await client.models.generateContent({
-        model: 'gemini-4-hydrogen',
-        contents: prompt,
-        config: {
+      const response = await generateContentWithRetry(
+        client,
+        {
+          model: 'gemini-4-hydrogen',
+          contents: prompt,
+          config: {
           responseMimeType: 'application/json',
           responseSchema: {
             type: "OBJECT",
@@ -1322,7 +1381,9 @@ Retorne ESTRITAMENTE um JSON puro com o seguinte formato:
             required: ["campaignName", "targetAudience", "recommendedBudget", "adGroups", "fbaOrLogisticsInsight"]
           }
         }
-      });
+        },
+        { label: `Campanha Ads (${platform})` }
+      );
       return JSON.parse(response.text || '{}');
     } catch (err: any) {
       console.error('Erro ao gerar campanha de ads:', err);
@@ -1511,56 +1572,60 @@ Formato obrigatório de retorno (JSON puro):
 
     try {
       const client = getAiClient();
-      const response = await client.models.generateContent({
-        model: 'gemini-4-hydrogen',
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        config: {
-          systemInstruction,
-          safetySettings: [
-            { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-            { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-            { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
-            { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE }
-          ],
-          ...(permissions?.['search-console'] && !briefing ? { tools: [{ googleSearch: {} }] } : {}),
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              novoTitulo: { type: Type.STRING },
-              metaDescription: { type: Type.STRING },
-              publicoAlvo: { type: Type.STRING },
-              tags: { type: Type.STRING },
-              marca: { type: Type.STRING },
-              urlProduto: { type: Type.STRING },
-              novaDescricaoHtml: { type: Type.STRING },
-              scoreTituloOriginal: { type: Type.INTEGER },
-              scoreTituloNovo: { type: Type.INTEGER },
-              scoreMetaOriginal: { type: Type.INTEGER },
-              scoreMetaNova: { type: Type.INTEGER },
-              scoreMarcaOriginal: { type: Type.INTEGER },
-              scoreMarcaNova: { type: Type.INTEGER },
-              scoreTagsOriginal: { type: Type.INTEGER },
-              scoreTagsNova: { type: Type.INTEGER },
-              scoreUrlOriginal: { type: Type.INTEGER },
-              scoreUrlNova: { type: Type.INTEGER },
-              scoreDescricaoOriginal: { type: Type.INTEGER },
-              scoreDescricaoNova: { type: Type.INTEGER },
-              dicasMelhoria: { type: Type.ARRAY, items: { type: Type.STRING } },
-              emailMarketing: { type: Type.STRING },
-              socialMediaPosts: { type: Type.ARRAY, items: { type: Type.STRING } },
-              facebookAds: { type: Type.ARRAY, items: { type: Type.STRING } }
-            },
-            required: [
-              "novoTitulo", "metaDescription", "publicoAlvo", "tags", "marca", "urlProduto",
-              "novaDescricaoHtml", "scoreTituloOriginal", "scoreTituloNovo", "scoreMetaOriginal", "scoreMetaNova",
-              "scoreMarcaOriginal", "scoreMarcaNova", "scoreTagsOriginal", "scoreTagsNova", "scoreUrlOriginal", "scoreUrlNova",
-              "scoreDescricaoOriginal",
-              "scoreDescricaoNova", "dicasMelhoria", "emailMarketing", "socialMediaPosts", "facebookAds"
-            ]
+      const response = await generateContentWithRetry(
+        client,
+        {
+          model: 'gemini-4-hydrogen',
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          config: {
+            systemInstruction,
+            safetySettings: [
+              { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+              { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+              { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+              { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE }
+            ],
+            ...(permissions?.['search-console'] && !briefing ? { tools: [{ googleSearch: {} }] } : {}),
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                novoTitulo: { type: Type.STRING },
+                metaDescription: { type: Type.STRING },
+                publicoAlvo: { type: Type.STRING },
+                tags: { type: Type.STRING },
+                marca: { type: Type.STRING },
+                urlProduto: { type: Type.STRING },
+                novaDescricaoHtml: { type: Type.STRING },
+                scoreTituloOriginal: { type: Type.INTEGER },
+                scoreTituloNovo: { type: Type.INTEGER },
+                scoreMetaOriginal: { type: Type.INTEGER },
+                scoreMetaNova: { type: Type.INTEGER },
+                scoreMarcaOriginal: { type: Type.INTEGER },
+                scoreMarcaNova: { type: Type.INTEGER },
+                scoreTagsOriginal: { type: Type.INTEGER },
+                scoreTagsNova: { type: Type.INTEGER },
+                scoreUrlOriginal: { type: Type.INTEGER },
+                scoreUrlNova: { type: Type.INTEGER },
+                scoreDescricaoOriginal: { type: Type.INTEGER },
+                scoreDescricaoNova: { type: Type.INTEGER },
+                dicasMelhoria: { type: Type.ARRAY, items: { type: Type.STRING } },
+                emailMarketing: { type: Type.STRING },
+                socialMediaPosts: { type: Type.ARRAY, items: { type: Type.STRING } },
+                facebookAds: { type: Type.ARRAY, items: { type: Type.STRING } }
+              },
+              required: [
+                "novoTitulo", "metaDescription", "publicoAlvo", "tags", "marca", "urlProduto",
+                "novaDescricaoHtml", "scoreTituloOriginal", "scoreTituloNovo", "scoreMetaOriginal", "scoreMetaNova",
+                "scoreMarcaOriginal", "scoreMarcaNova", "scoreTagsOriginal", "scoreTagsNova", "scoreUrlOriginal", "scoreUrlNova",
+                "scoreDescricaoOriginal",
+                "scoreDescricaoNova", "dicasMelhoria", "emailMarketing", "socialMediaPosts", "facebookAds"
+              ]
+            }
           }
-        }
-      });
+        },
+        { label: `Etapa 5 Especialista SEO (${productData?.sku || 'SKU'})` }
+      );
       const seoUsage = response.usageMetadata;
       const parsed = JSON.parse(response.text || '{}');
       if (seoUsage) {
@@ -1568,37 +1633,9 @@ Formato obrigatório de retorno (JSON puro):
       }
       return parsed;
     } catch (err: any) {
-      console.error('Erro na geração de SEO:', err);
-      
-      // Tratamento gracioso para o limite de cota da chave de testes
-      if (err.message?.includes('429') || err.message?.includes('Quota') || err.message?.includes('404') || err.message?.includes('NOT_FOUND')) {
-        return {
-          novoTitulo: "⚠️ [LIMITE DE REQUISIÇÕES ATINGIDO]",
-          metaDescription: "O limite de uso gratuito da API do Gemini foi temporariamente excedido (Status 429).",
-          publicoAlvo: "Para uso contínuo em produção, adicione sua própria GEMINI_API_KEY no painel de configurações ou aguarde 1 minuto.",
-          tags: "erro, cota, api, limite",
-          marca: "Google Cloud",
-          urlProduto: "limite-de-requisicoes",
-          novaDescricaoHtml: "<p><strong>Limite de requisições excedido.</strong></p><p>O sistema está utilizando corretamente a API, mas a chave configurada atingiu o limite de requisições (Status 429).</p><p>Para continuar testando, verifique se a sua chave de API inserida nas configurações (Secrets) possui saldo e cota disponível. Lembre-se que as alterações na chave do VS Code não se aplicam automaticamente ao painel do AI Studio.</p>",
-          scoreTituloOriginal: 0,
-          scoreTituloNovo: 0,
-          scoreMetaOriginal: 0,
-          scoreMetaNova: 0,
-          scoreMarcaOriginal: 0,
-          scoreMarcaNova: 0,
-          scoreTagsOriginal: 0,
-          scoreTagsNova: 0,
-          scoreUrlOriginal: 0,
-          scoreUrlNova: 0,
-          scoreDescricaoOriginal: 0,
-          scoreDescricaoNova: 0,
-          dicasMelhoria: [],
-          emailMarketing: "",
-          socialMediaPosts: [],
-          facebookAds: []
-        };
-      }
-      throw err;
+      console.error('❌ Erro definitivo na geração de SEO (após retries + fallback):', err?.message || err);
+      // PROIBIDO retornar SEO falso ("[LIMITE DE REQUISIÇÕES ATINGIDO]") — propaga o erro real para impedir sobrescrita na Nuvemshop!
+      throw new Error(`Falha na geração de SEO pela API do Gemini (após retentativas automáticas): ${err?.message || 'Erro desconhecido'}`);
     }
   },
   
@@ -1720,13 +1757,17 @@ Exemplo: [ENCAMINHAR_PARA: pesquisador] Olá pesquisador, realize a pesquisa e l
       const client = getAiClient();
       while (shouldContinue && loopCount < 3) {
         loopCount++;
-        const response = await client.models.generateContent({
-          model: 'gemini-4-hydrogen',
-          contents,
-          config: {
-            tools
-          }
-        });
+        const response = await generateContentWithRetry(
+          client,
+          {
+            model: 'gemini-4-hydrogen',
+            contents,
+            config: {
+              tools
+            }
+          },
+          { label: `Chat Equipe (${receiver})` }
+        );
 
         if (response.functionCalls && response.functionCalls.length > 0) {
           // Adiciona a chamada da função ao histórico preservando todos os parts originais
@@ -1812,10 +1853,14 @@ Exemplo: [ENCAMINHAR_PARA: pesquisador] Olá pesquisador, realize a pesquisa e l
       }
 
       if (!aiText) {
-        const finalResp = await client.models.generateContent({
-          model: 'gemini-4-hydrogen',
-          contents,
-        });
+        const finalResp = await generateContentWithRetry(
+          client,
+          {
+            model: 'gemini-4-hydrogen',
+            contents,
+          },
+          { label: `Chat Equipe Final (${receiver})` }
+        );
         aiText = finalResp.text || 'Consulta concluída. Verifique os detalhes na aba Briefing de SKUs.';
       }
       
@@ -1851,10 +1896,14 @@ Exemplo: [ENCAMINHAR_PARA: pesquisador] Olá pesquisador, realize a pesquisa e l
 
   async generateText(prompt: string) {
     const client = getAiClient();
-    const res = await client.models.generateContent({
-      model: 'gemini-4-hydrogen',
-      contents: [{ role: 'user', parts: [{ text: prompt }] }]
-    });
+    const res = await generateContentWithRetry(
+      client,
+      {
+        model: 'gemini-4-hydrogen',
+        contents: [{ role: 'user', parts: [{ text: prompt }] }]
+      },
+      { label: 'generateText' }
+    );
     return res.text;
   }
 };

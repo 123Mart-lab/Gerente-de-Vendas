@@ -13,6 +13,7 @@ import { openwaService } from './src/services/openwa.js';
 import { generatePdf } from './src/services/pdfService.js';
 import { tinyErpService } from './src/services/tinyErp.js';
 import { generateArtSlotImage } from './src/services/artComposer.js';
+import { generateContentWithRetry } from './src/services/geminiRetry.js';
 import {
   validateAndNormalizeArtSlot,
   type ArtRenderMode,
@@ -782,6 +783,37 @@ async function updateNuvemshopProduct(productIdOrSku: string, data: any) {
   const metaDescription = data.metaDescription || data.meta || data.seo_description;
   const tags = data.tags;
   const marca = data.marca || data.brand;
+
+  // TRAVA ANTI-CORRUPÇÃO NUVEMSHOP: jamais sobrescrever produto real com mensagens de erro, 429 ou fallback
+  const errorPayloadPattern =
+    /LIMITE DE REQUISI[ÇC][ÕO]ES|Status\s*429|RESOURCE_EXHAUSTED|Limite de requisi[çc][õo]es excedido|limite-de-requisicoes|Falha na gera[çc][ãa]o de SEO|Quota exceeded/i;
+  const fieldsToGuard = [
+    { name: 'título', value: String(novoTitulo || '') },
+    { name: 'título SEO', value: String(novoTituloSeo || '') },
+    { name: 'meta description', value: String(metaDescription || '') },
+    { name: 'descrição HTML', value: String(novaDescricao || '') },
+    { name: 'tags', value: String(tags || '') },
+  ];
+  for (const f of fieldsToGuard) {
+    if (f.value && errorPayloadPattern.test(f.value)) {
+      const msg = `🛑 [TRAVA NUVEMSHOP] Bloqueada tentativa de salvar mensagem de erro/cota no campo "${f.name}" do SKU ${productIdOrSku}. Produto preservado na loja!`;
+      console.error(msg);
+      throw new Error(msg);
+    }
+  }
+  if (
+    String(marca || '').trim().toLowerCase() === 'google cloud' &&
+    (!novoTitulo || errorPayloadPattern.test(String(novoTitulo)) || String(data?.urlProduto || '') === 'limite-de-requisicoes')
+  ) {
+    const msg = `🛑 [TRAVA NUVEMSHOP] Bloqueada tentativa de salvar payload inválido ("Google Cloud") no SKU ${productIdOrSku}.`;
+    console.error(msg);
+    throw new Error(msg);
+  }
+  if (novoTitulo !== undefined && String(novoTitulo).trim().length < 4) {
+    const msg = `🛑 [TRAVA NUVEMSHOP] Bloqueado título vazio/curto demais ("${novoTitulo}") para o SKU ${productIdOrSku}.`;
+    console.error(msg);
+    throw new Error(msg);
+  }
 
   const updatePayload: any = {};
   if (novoTitulo) updatePayload.name = { pt: novoTitulo };
@@ -2445,10 +2477,14 @@ ${cleanPrompt ? `Instruções Específicas do Usuário: "${cleanPrompt}"` : ''}
         });
 
         try {
-          const response = await ai.models.generateContent({
-            model: 'gemini-nano-banana-2.1',
-            contents: { parts: [{ text: socialPrompt }] }
-          });
+          const response = await generateContentWithRetry(
+            ai,
+            {
+              model: 'gemini-nano-banana-2.1',
+              contents: { parts: [{ text: socialPrompt }] }
+            },
+            { label: 'Social Media Image (Nano Banana 2.1)', maxRetries: 3, fallbackModels: [] }
+          );
           usedModel = 'gemini-nano-banana-2.1';
           for (const part of response.candidates?.[0]?.content?.parts ?? []) {
             if (part.inlineData?.data) {
@@ -2459,10 +2495,14 @@ ${cleanPrompt ? `Instruções Específicas do Usuário: "${cleanPrompt}"` : ''}
         } catch (nanoErr: any) {
           console.warn('[Social Media Image] Tentando modelo gemini-3.1-flash-lite-image:', nanoErr?.message);
           try {
-            const response = await ai.models.generateContent({
-              model: 'gemini-3.1-flash-lite-image',
-              contents: { parts: [{ text: socialPrompt }] }
-            });
+            const response = await generateContentWithRetry(
+              ai,
+              {
+                model: 'gemini-3.1-flash-lite-image',
+                contents: { parts: [{ text: socialPrompt }] }
+              },
+              { label: 'Social Media Image (Flash Lite Image)', maxRetries: 3, fallbackModels: [] }
+            );
             usedModel = 'gemini-3.1-flash-lite-image';
             for (const part of response.candidates?.[0]?.content?.parts ?? []) {
               if (part.inlineData?.data) {
@@ -3117,16 +3157,20 @@ ${skuDirective}
       .filter(Boolean) as Array<{ role: string; parts: Array<{ text: string }> }>;
 
     try {
-      const result = await ai.models.generateContent({
-        model: 'gemini-4-hydrogen',
-        contents: [
-          ...sanitizedHistory,
-          { role: 'user', parts: [{ text: cleanMessage }] }
-        ],
-        config: {
-          systemInstruction: sysPrompt,
-        }
-      });
+      const result = await generateContentWithRetry(
+        ai,
+        {
+          model: 'gemini-4-hydrogen',
+          contents: [
+            ...sanitizedHistory,
+            { role: 'user', parts: [{ text: cleanMessage }] }
+          ],
+          config: {
+            systemInstruction: sysPrompt,
+          }
+        },
+        { label: 'CEO Copilot Chat' }
+      );
 
       const responseText = result.text || '';
       let actionToRun: string | null = null;

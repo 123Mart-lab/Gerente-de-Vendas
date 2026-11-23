@@ -1,6 +1,12 @@
 import { GoogleGenAI, Type, Schema } from '@google/genai';
+import { generateContentWithRetry } from './geminiRetry.js';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+function getTriageClient() {
+  return new GoogleGenAI({
+    apiKey: process.env.GEMINI_API_KEY,
+    httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
+  });
+}
 
 const triageSchema: Schema = {
   type: Type.OBJECT,
@@ -41,15 +47,19 @@ Mensagem atual do cliente:
 Responda em formato JSON classificando a intenção.
 `;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.1-flash-lite',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: triageSchema,
-          temperature: 0.1,
-        }
-      });
+      const response = await generateContentWithRetry(
+        getTriageClient(),
+        {
+          model: 'gemini-3.1-flash-lite',
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: triageSchema,
+            temperature: 0.1,
+          }
+        },
+        { label: 'Triagem WhatsApp' }
+      );
 
       if (response.text) {
         const result = JSON.parse(response.text);

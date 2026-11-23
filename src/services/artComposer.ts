@@ -3,6 +3,7 @@ import path from 'path';
 import axios from 'axios';
 import sharp from 'sharp';
 import { GoogleGenAI } from '@google/genai';
+import { generateContentWithRetry } from './geminiRetry.js';
 import type {
   ArtInfoCard,
   ArtRenderMode,
@@ -1609,13 +1610,21 @@ async function callGeminiImageModel(
 
   for (const candidate of modelsToTry) {
     try {
-      const response = await ai.models.generateContent({
-        model: candidate.model,
-        contents,
-        config: {
-          imageConfig: candidate.imageConfig,
+      const response = await generateContentWithRetry(
+        ai,
+        {
+          model: candidate.model,
+          contents,
+          config: {
+            imageConfig: candidate.imageConfig,
+          },
         },
-      });
+        {
+          label: `ArtComposer (${candidate.model})`,
+          maxRetries: 3,
+          fallbackModels: [], // fallback de imagem tratado no loop externo para adaptar imageConfig
+        }
+      );
 
       const meta = (response as any)?.usageMetadata;
       const tokenUsage: ImageTokenUsage | undefined = meta

@@ -1857,7 +1857,13 @@ app.post('/api/marketing/ai/recreate-image', async (req, res) => {
     }
 
     // 5. Executa a geração real via Gemini Image + Composição Híbrida PT-BR + Otimização JPG/WebP
-    // Nunca força redesenho da embalagem pela IA: o recorte pixel-original v3 preserva 100% da embalagem e rótulo reais sem transparência!
+    // Se o usuário reclamou de transparência, recorte vazado, halo branco ou pediu embalagem sólida/opaca,
+    // força Compositing Sólido (100% opaco, sem flood-fill).
+    const userRequestedSolidCompositing =
+      /transpar|recort|vazad|halo|borda\s*branca|opac|s[oó]lid|fundo\s*(aparec|atravess|vazand)|mesclag|sumiu\s*a\s*(embalagem|tampa|lateral)/i.test(
+        cleanUserText
+      );
+
     const composed = await generateArtSlotImage({
       sku: resolvedSku,
       slotNumber: resolvedSlotNum,
@@ -1880,7 +1886,7 @@ app.post('/api/marketing/ai/recreate-image', async (req, res) => {
       },
       overlayOnly: Boolean(overlayOnly),
       cachedCleanScenePath: existingGeneratedSlot?.cleanSceneUrl,
-      forceSolidAiCompositing: false,
+      forceSolidAiCompositing: userRequestedSolidCompositing,
     });
 
     // 6. Persiste resultado e plano atualizado no briefing do SKU (sobrevive a recarregamentos)

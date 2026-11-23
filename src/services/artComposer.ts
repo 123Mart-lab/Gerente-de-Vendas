@@ -377,37 +377,66 @@ export async function extractRealProductCutout(
 
       const bw = Math.max(1, maxX - minX + 1);
       const bh = Math.max(1, maxY - minY + 1);
-      const upperEndY = minY + Math.floor(bh * 0.72);
-      let upperFgInterior = 0;
-      let upperFgLight = 0;
+      let fgInterior = 0;
+      let fgLight = 0;
+      let boundaryTotal = 0;
+      let boundaryWhite = 0;
 
-      for (let y = minY + 2; y < Math.min(h - 2, upperEndY); y++) {
-        for (let x = minX + 2; x < Math.min(w - 2, maxX - 1); x++) {
+      for (let y = minY + 1; y < Math.min(h - 1, maxY); y++) {
+        for (let x = minX + 1; x < Math.min(w - 1, maxX); x++) {
           const idx = y * w + x;
-          if (
-            bgMask[idx] === 0 &&
+          if (bgMask[idx] !== 0) continue;
+
+          const o = idx * 4;
+          const r = rgba[o];
+          const g = rgba[o + 1];
+          const b = rgba[o + 2];
+          const lum = (r + g + b) / 3;
+          const ch = Math.max(r, g, b) - Math.min(r, g, b);
+
+          const touchesBg =
+            bgMask[idx - 1] === 1 ||
+            bgMask[idx + 1] === 1 ||
+            bgMask[idx - w] === 1 ||
+            bgMask[idx + w] === 1;
+
+          if (touchesBg) {
+            boundaryTotal++;
+            if (lum >= 200 && ch <= 32) boundaryWhite++;
+          } else if (
+            x >= minX + 2 &&
+            x < w - 2 &&
+            y >= minY + 2 &&
+            y < h - 2 &&
             bgMask[idx - 2] === 0 &&
             bgMask[idx + 2] === 0 &&
             bgMask[idx - 2 * w] === 0 &&
             bgMask[idx + 2 * w] === 0
           ) {
-            upperFgInterior++;
-            const o = idx * 4;
-            const r = rgba[o];
-            const g = rgba[o + 1];
-            const b = rgba[o + 2];
-            const lum = (r + g + b) / 3;
-            const ch = Math.max(r, g, b) - Math.min(r, g, b);
-            if (lum >= 180 && ch <= 38) upperFgLight++;
+            fgInterior++;
+            if (lum >= 185 && ch <= 36) fgLight++;
           }
         }
       }
 
-      const isWhiteSurfacePackaging =
-        upperFgInterior > 200 && upperFgLight / upperFgInterior >= 0.22;
+      const fgLightRatio = fgInterior > 200 ? fgLight / fgInterior : 0;
+      const whiteBoundaryRatio = boundaryTotal > 60 ? boundaryWhite / boundaryTotal : 0;
+      const isWhiteSurfacePackaging = fgLightRatio >= 0.16 || whiteBoundaryRatio >= 0.16;
+
+      // CRÍTICO PARA SLOTS 2-8 (CENÁRIOS AMBIENTADOS/ESCUROS):
+      // Se a embalagem possui corpo ou bordas brancas/claras sobre fundo branco de estúdio (ex: tubos brancos,
+      // frascos brancos, sacos brancos, rótulos brancos encostando na borda), o flood-fill por cor inevitavelmente
+      // morde o plástico branco (gerando buracos transparentes) ou deixa halo serrilhado.
+      // Nesses casos, abortamos o recorte por flood-fill e acionamos o Compositing Sólido 100% opaco via Gemini!
+      if (!options.isSlot1 && isWhiteSurfacePackaging) {
+        console.log(
+          `[🛡️ ArtComposer Anti-Transparência] Embalagem branca/clara detectada (corpo claro: ${(fgLightRatio * 100).toFixed(1)}%, borda clara: ${(whiteBoundaryRatio * 100).toFixed(1)}%). Abortando flood-fill para usar Compositing Sólido 100% opaco.`
+        );
+        return null;
+      }
 
       if (isWhiteSurfacePackaging) {
-        // Interpola pequenas quebras no topo da embalagem (até 14% da largura) onde o brilho do plástico encostou no fundo #FFFFFF
+        // Slot 1 (#FFFFFF): restaura eventuais cavidades de brilho branco mantendo 100% dos pixels originais
         const smoothColMinY = new Int32Array(colMinY);
         const maxBridgeSpan = Math.max(12, Math.round(bw * 0.14));
         const topBandLimit = minY + Math.round(bh * 0.12);
@@ -443,7 +472,7 @@ export async function extractRealProductCutout(
         }
         if (restoredPixels > 500) {
           console.log(
-            `[🛡️ ArtComposer Pixel-Original] Embalagem branca blindada: ${restoredPixels} pixels de brilho branco restaurados (100% opaco, zero redesenho por IA!).`
+            `[🛡️ ArtComposer Pixel-Original] Slot 1 blindado: ${restoredPixels} pixels de brilho branco restaurados (100% opaco).`
           );
         }
       }
@@ -563,6 +592,19 @@ export async function extractRealProductCutout(
         if (qTail > maxCompSize) maxCompSize = qTail;
       }
 
+      // Se nos Slots 2-8 o flood-fill fragmentou o produto em múltiplos blocos desconectados relevantes
+      // (sinal clássico de que uma faixa/gargalo branco da embalagem foi comido pelo recorte),
+      // aborta o recorte e delega ao Compositing Sólido via Gemini.
+      if (!options.isSlot1 && maxCompSize > 0 && nextLabel > 2) {
+        const majorComponents = compSizes.filter((sz) => sz >= Math.max(400, Math.round(maxCompSize * 0.08))).length;
+        if (majorComponents >= 2) {
+          console.log(
+            `[🛡️ ArtComposer Anti-Transparência] Silhueta fragmentada em ${majorComponents} partes pelo flood-fill (faixa branca vazada). Alternando para Compositing Sólido.`
+          );
+          return null;
+        }
+      }
+
       if (maxCompSize > 0 && nextLabel > 2) {
         const minKeepSize = Math.max(200, Math.round(maxCompSize * 0.1));
         for (let i = 0; i < w * h; i++) {
@@ -574,7 +616,8 @@ export async function extractRealProductCutout(
         }
       }
 
-      // Suavização anti-aliasing de 1px na fronteira para eliminar halos brancos em fundos escuros
+      // Suavização anti-aliasing conservadora de 1px na fronteira: remove apenas ruído isolado e franja branco-puro
+      // sem jamais aplicar semi-transparência em bordas sólidas do produto.
       for (let y = 1; y < h - 1; y++) {
         for (let x = 1; x < w - 1; x++) {
           const idx = y * w + x;
@@ -603,13 +646,9 @@ export async function extractRealProductCutout(
           if (bgNeighbors >= 7) {
             // Remove pixels soltos de ruído (speckles)
             rgba[o + 3] = 0;
-          } else if (lum >= 218 && maxC - minC <= 26) {
-            // Borda anti-aliased clara misturada com o branco original: reduz alpha suavemente
-            const opacityFactor = Math.max(0.08, Math.min(0.85, (248 - lum) / 36));
-            rgba[o + 3] = Math.round(rgba[o + 3] * opacityFactor);
-          } else if (bgNeighbors >= 3) {
-            // Leve suavização de borda para transição fotográfica macia
-            rgba[o + 3] = Math.round(rgba[o + 3] * 0.88);
+          } else if (bgNeighbors >= 4 && lum >= 244 && maxC - minC <= 10) {
+            // Remove apenas 1px de halo branco puro solto na ponta externa
+            rgba[o + 3] = Math.round(rgba[o + 3] * 0.55);
           }
         }
       }
@@ -1697,7 +1736,7 @@ export async function generateArtSlotImage(
     };
 
     const solidOpaqueRule =
-      'SOLID OPAQUE PACKAGING & NO FLOOR-REFLECTION RULE (CRITICAL): Render the ENTIRE product packaging (including ALL white plastic surfaces, white corners, white pouches/bags, and white labels) 100% SOLID and OPAQUE — NEVER semi-transparent, NEVER ghostly, NEVER let the dark background bleed through white areas of the packaging. Completely REMOVE any inverted white-floor mirror reflection from the bottom of the reference catalog photo and rest the true solid base of the packaging naturally onto the scene surface with a soft realistic contact shadow.';
+      'SOLID OPAQUE PACKAGING & NO FLOOR-REFLECTION RULE (CRITICAL): Render the ENTIRE product packaging — including ALL white cylindrical tubes, white bottle necks/collars, white plastic walls, white corners, white pouches/bags, and white labels — 100% SOLID, OPAQUE, and PHYSICALLY REAL with crisp natural edges (ZERO white sticker cutout halo, NEVER semi-transparent, NEVER ghostly, NEVER let the scene background bleed through white plastic or label areas). Completely REMOVE any inverted white-floor mirror reflection from the bottom of the reference catalog photo and rest the true solid base of the packaging naturally onto the scene surface with a soft realistic contact shadow.';
 
     const activePrompt =
       slotNumber === 1

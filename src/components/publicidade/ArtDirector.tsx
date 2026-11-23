@@ -185,6 +185,10 @@ export default function ArtDirector() {
   const [isPlanningArt, setIsPlanningArt] = useState<boolean>(false);
   const [isGeneratingAll, setIsGeneratingAll] = useState<boolean>(false);
   const [studioFeedback, setStudioFeedback] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+  const [orchestrationSync, setOrchestrationSync] = useState<{ isRunning: boolean; currentStep: string }>({
+    isRunning: false,
+    currentStep: 'idle',
+  });
 
   // Estados de aprovação, imagens anteriores mantidas, edição de textos PT-BR e recriação por slot
   const [approvedSlots, setApprovedSlots] = useState<{ [key: number]: boolean }>({});
@@ -288,6 +292,38 @@ export default function ArtDirector() {
 
     fetchAll();
     return () => { isMounted = false; };
+  }, [activeSku, fetchSkuBriefing]);
+
+  // Monitora se a esteira principal está rodando no backend para este SKU (evita 2º art/plan duplicado!)
+  useEffect(() => {
+    let cancelled = false;
+    let wasRunning = false;
+
+    const checkOrchestration = async () => {
+      try {
+        const res = await axios.get(`/api/marketing/orchestration-status/${encodeURIComponent(activeSku)}`);
+        if (cancelled || !res.data) return;
+        const running = Boolean(res.data.isRunning);
+        setOrchestrationSync({
+          isRunning: running,
+          currentStep: res.data.currentStep || 'idle',
+        });
+        if (wasRunning && !running) {
+          // Esteira acabou de concluir: recarrega automaticamente o Briefing + artPlan oficial
+          await fetchSkuBriefing(activeSku);
+        }
+        wasRunning = running;
+      } catch {
+        // silencioso
+      }
+    };
+
+    checkOrchestration();
+    const interval = setInterval(checkOrchestration, 3500);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, [activeSku, fetchSkuBriefing]);
 
   const resetLocalSlotState = () => {
@@ -1541,6 +1577,7 @@ const isScreenshotUrl = (src: string | undefined): boolean => {
     try {
       const res = await axios.post('/api/marketing/art/plan', {
         sku: activeSku,
+        forceRefresh: true,
         productName: productData?.name,
         brand: productData?.brand,
         description: productData?.description,
@@ -2096,6 +2133,23 @@ const isScreenshotUrl = (src: string | undefined): boolean => {
         </form>
       </div>
 
+      {/* 1.5 BANNER DE SINCRONIZAÇÃO QUANDO A ESTEIRA ESTÁ RODANDO NO BACKEND */}
+      {orchestrationSync.isRunning && (
+        <div className="p-4 rounded-2xl border border-sky-300 bg-sky-50 text-sky-950 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <Loader2 className="w-5 h-5 text-sky-600 animate-spin shrink-0" />
+            <div>
+              <p className="text-xs font-black uppercase tracking-wider text-sky-900">
+                Esteira em andamento no backend — aguardando Plano Visual oficial ({activeSku})
+              </p>
+              <p className="text-xs text-sky-800 mt-0.5">
+                Etapa atual: <strong className="font-mono">{orchestrationSync.currentStep}</strong>. Assim que concluir, os 8 slots oficiais serão carregados automaticamente aqui sem duplicar geração.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 2. BARRA DE STATUS DE APROVAÇÃO DO FLUXO DO GERENTE DE PROJETOS */}
       <div className={`p-5 rounded-2xl border transition-all ${
         allApproved
@@ -2148,7 +2202,7 @@ const isScreenshotUrl = (src: string | undefined): boolean => {
               <button
                 type="button"
                 onClick={handleGenerateAllImages}
-                disabled={isGeneratingAll || isPlanningArt}
+                disabled={isGeneratingAll || isPlanningArt || orchestrationSync.isRunning}
                 className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black flex items-center gap-2 transition-all shadow-md hover:shadow-lg disabled:opacity-50"
               >
                 {isGeneratingAll ? (

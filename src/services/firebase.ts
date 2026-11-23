@@ -1,17 +1,51 @@
 import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import fs from 'fs';
+import path from 'path';
 
-// Protocolo: Lazy initialization para Firebase Admin
+// Protocolo: Lazy initialization + circuit-breaker para Firebase Admin
 let dbInstance: ReturnType<typeof getFirestore> | null = null;
+let firestoreDisabledReason: string | null = null;
 
-function getDb() {
+function isPermissionOrConfigError(err: any): boolean {
+  const code = err?.code;
+  const msg = String(err?.message || err || '');
+  return (
+    code === 7 ||
+    code === 16 ||
+    /PERMISSION_DENIED|UNAUTHENTICATED|Faltam variáveis de ambiente do Firebase|Could not load the default credentials/i.test(
+      msg
+    )
+  );
+}
+
+function handleFirestoreError(context: string, err: any) {
+  const msg = err?.message || String(err);
+  if (isPermissionOrConfigError(err)) {
+    if (!firestoreDisabledReason) {
+      firestoreDisabledReason = msg;
+      console.log(
+        `[Storage] Firestore indisponível (${msg}). Operando em modo de persistência local (.data/*.json) sem bloqueios.`
+      );
+    }
+    return;
+  }
+  console.warn(`Firebase error in ${context}:`, msg);
+}
+
+function getDb(): ReturnType<typeof getFirestore> | null {
+  if (firestoreDisabledReason) return null;
   if (dbInstance) return dbInstance;
-  
+
   if (!getApps().length) {
     if (!process.env.FIREBASE_PROJECT_ID || !process.env.FIREBASE_PRIVATE_KEY) {
-      throw new Error('Faltam variáveis de ambiente do Firebase (FIREBASE_PROJECT_ID, FIREBASE_PRIVATE_KEY)');
+      handleFirestoreError(
+        'init',
+        new Error('Faltam variáveis de ambiente do Firebase (FIREBASE_PROJECT_ID, FIREBASE_PRIVATE_KEY)')
+      );
+      return null;
     }
-    
+
     initializeApp({
       credential: cert({
         projectId: process.env.FIREBASE_PROJECT_ID,
@@ -21,40 +55,39 @@ function getDb() {
     });
     console.log('🔥 Firebase Admin SDK Inicializado com Sucesso.');
   }
-  
+
   // Apontando para o banco customizado ou via variável de ambiente
   const defaultDbId = process.env.FIREBASE_DATABASE_ID || '(default)';
   dbInstance = getFirestore(defaultDbId !== '(default)' ? defaultDbId : undefined);
   return dbInstance;
 }
 
-import fs from 'fs';
-import path from 'path';
-
 const DATA_DIR = path.join(process.cwd(), '.data');
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
-function loadLocalData(filename, defaultVal) {
+function loadLocalData(filename: string, defaultVal: any) {
   try {
     const file = path.join(DATA_DIR, filename);
     if (fs.existsSync(file)) {
       return JSON.parse(fs.readFileSync(file, 'utf8'));
     }
-  } catch(e) {}
+  } catch (e) {}
   return defaultVal;
 }
 
-function saveLocalData(filename, data) {
+function saveLocalData(filename: string, data: any) {
   try {
     const file = path.join(DATA_DIR, filename);
     fs.writeFileSync(file, JSON.stringify(data, null, 2));
-  } catch(e) {}
+  } catch (e) {}
 }
 
 let inMemoryChats = loadLocalData('chats.json', []);
 let inMemoryBriefings = loadLocalData('briefings.json', {});
+let inMemorySettings = loadLocalData('settings.json', null);
+let inMemoryNuvemshopAuth = loadLocalData('nuvemshop_auth.json', null);
 
 
 export const firebaseService = {
@@ -62,11 +95,12 @@ export const firebaseService = {
    * Busca um lead pelo telefone. Se não existir, cria com o estágio padrão (01_prospeccao).
    */
   async getOrCreateLead(phone: string) {
+    const db = getDb();
+    if (!db) return { phone, pipelineStage: '01_prospeccao' };
     try {
-      const db = getDb();
       const leadRef = db.collection('leads').doc(phone);
       const doc = await leadRef.get();
-      
+
       if (!doc.exists) {
         const newLead = {
           phone,
@@ -77,10 +111,10 @@ export const firebaseService = {
         await leadRef.set(newLead);
         return newLead;
       }
-      
+
       return doc.data() as any;
     } catch (e) {
-      console.warn('Firebase error in getOrCreateLead', e);
+      handleFirestoreError('getOrCreateLead', e);
       return { phone, pipelineStage: '01_prospeccao' };
     }
   },
@@ -89,14 +123,16 @@ export const firebaseService = {
    * Atualiza a etapa da pipeline de um cliente no banco de dados.
    */
   async updatePipelineStage(phone: string, stage: string) {
+    const db = getDb();
+    if (!db) return;
     try {
-      await getDb().collection('leads').doc(phone).update({
+      await db.collection('leads').doc(phone).update({
         pipelineStage: stage,
         lastInteraction: FieldValue.serverTimestamp()
       });
       console.log(`[Firebase] Lead ${phone} movido para a etapa: ${stage}`);
     } catch (e) {
-      console.warn('Firebase error in updatePipelineStage', e);
+      handleFirestoreError('updatePipelineStage', e);
     }
   },
 
@@ -104,20 +140,21 @@ export const firebaseService = {
    * Salva a mensagem (seja do usuário ou do bot) no subcoleção de histórico.
    */
   async saveMessage(phone: string, text: string, role: 'user' | 'bot') {
+    const db = getDb();
+    if (!db) return;
     try {
-      const db = getDb();
       await db.collection('leads').doc(phone).collection('messages').add({
         text,
         role,
         timestamp: FieldValue.serverTimestamp()
       });
-      
+
       // Atualiza o timestamp da última interação no documento principal
       await db.collection('leads').doc(phone).update({
         lastInteraction: FieldValue.serverTimestamp()
       });
     } catch (e) {
-      console.warn('Firebase error in saveMessage', e);
+      handleFirestoreError('saveMessage', e);
     }
   },
 
@@ -125,55 +162,80 @@ export const firebaseService = {
    * Recupera as últimas 'limit' mensagens para passar como contexto para o Gemini.
    */
   async getChatHistory(phone: string, limit = 15) {
+    const db = getDb();
+    if (!db) return [];
     try {
-      const snapshot = await getDb().collection('leads').doc(phone).collection('messages')
+      const snapshot = await db.collection('leads').doc(phone).collection('messages')
         .orderBy('timestamp', 'desc')
         .limit(limit)
         .get();
-        
+
       // Reverte para ficar em ordem cronológica (mais antiga -> mais nova)
       return snapshot.docs.map(doc => doc.data()).reverse();
     } catch (e) {
-      console.warn('Firebase error in getChatHistory', e);
+      handleFirestoreError('getChatHistory', e);
       return [];
     }
   },
 
   /**
-   * Salva as configurações globais (Regras de Disparo e Warm-up) no Firestore.
+   * Salva as configurações globais (Regras de Disparo, Warm-up e Permissões do RH)
+   * em disco local (.data/settings.json) e sincroniza no Firestore quando disponível.
    */
   async saveSettings(settings: any) {
-    try {
-      const db = getDb();
-      await db.collection('config').doc('globalSettings').set(settings, { merge: true });
-      console.log('[Firebase] Configurações globais atualizadas.');
-    } catch (e) {
-      console.warn('Firebase error in saveSettings', e);
+    const existing = loadLocalData('settings.json', inMemorySettings) || {};
+    const merged = {
+      ...existing,
+      ...(settings || {}),
+      updatedAt: Date.now()
+    };
+    inMemorySettings = merged;
+    saveLocalData('settings.json', merged);
+
+    const db = getDb();
+    if (db) {
+      try {
+        await db.collection('config').doc('globalSettings').set(merged, { merge: true });
+        console.log('[Firebase] Configurações globais atualizadas.');
+      } catch (e) {
+        handleFirestoreError('saveSettings', e);
+      }
     }
+    return merged;
   },
 
   /**
-   * Recupera as configurações globais.
+   * Recupera as configurações globais (Firestore quando disponível, com fallback para .data/settings.json).
    */
   async getSettings() {
-    try {
-      const db = getDb();
-      const doc = await db.collection('config').doc('globalSettings').get();
-      if (doc.exists) {
-        return doc.data();
+    const db = getDb();
+    if (db) {
+      try {
+        const doc = await db.collection('config').doc('globalSettings').get();
+        if (doc.exists) {
+          const remote = doc.data();
+          inMemorySettings = remote;
+          saveLocalData('settings.json', remote);
+          return remote;
+        }
+      } catch (e: any) {
+        handleFirestoreError('getSettings', e);
       }
-    } catch (e: any) {
-      console.warn('Fallback: Unable to fetch settings from Firebase, proceeding with defaults.', e.message);
     }
-    return null;
+    inMemorySettings = loadLocalData('settings.json', inMemorySettings);
+    return inMemorySettings;
   },
 
   /**
    * Salva as credenciais da Nuvemshop após a autorização.
    */
   async saveNuvemshopCredentials(storeId: string, accessToken: string) {
+    inMemoryNuvemshopAuth = { storeId, accessToken, updatedAt: Date.now() };
+    saveLocalData('nuvemshop_auth.json', inMemoryNuvemshopAuth);
+
+    const db = getDb();
+    if (!db) return;
     try {
-      const db = getDb();
       await db.collection('config').doc('nuvemshopAuth').set({
         storeId,
         accessToken,
@@ -181,7 +243,7 @@ export const firebaseService = {
       }, { merge: true });
       console.log('[Firebase] Credenciais da Nuvemshop salvas.');
     } catch (e) {
-      console.warn('Firebase error in saveNuvemshopCredentials', e);
+      handleFirestoreError('saveNuvemshopCredentials', e);
     }
   },
 
@@ -189,28 +251,32 @@ export const firebaseService = {
    * Recupera as credenciais da Nuvemshop.
    */
   async getNuvemshopCredentials() {
-    try {
-      const db = getDb();
-      const doc = await db.collection('config').doc('nuvemshopAuth').get();
-      if (doc.exists) {
-        return doc.data();
+    const db = getDb();
+    if (db) {
+      try {
+        const doc = await db.collection('config').doc('nuvemshopAuth').get();
+        if (doc.exists) {
+          return doc.data();
+        }
+      } catch (e) {
+        handleFirestoreError('getNuvemshopCredentials', e);
       }
-    } catch (e) {
-      console.warn('Firebase error in getNuvemshopCredentials', e);
     }
-    return null;
+    inMemoryNuvemshopAuth = loadLocalData('nuvemshop_auth.json', inMemoryNuvemshopAuth);
+    return inMemoryNuvemshopAuth;
   },
 
   /**
    * Salva o histórico de produtos otimizados pelo SEO
    */
   async saveSeoHistory(products: any[]) {
+    const db = getDb();
+    if (!db) return;
     try {
-      const db = getDb();
       await db.collection('config').doc('seoHistory').set({ products }, { merge: true });
       console.log('[Firebase] Histórico de SEO atualizado.');
     } catch (e) {
-      console.warn('Firebase error in saveSeoHistory', e);
+      handleFirestoreError('saveSeoHistory', e);
     }
   },
 
@@ -218,21 +284,23 @@ export const firebaseService = {
    * Recupera o histórico de produtos otimizados pelo SEO
    */
   async getSeoHistory() {
+    const db = getDb();
+    if (!db) return [];
     try {
-      const db = getDb();
       const doc = await db.collection('config').doc('seoHistory').get();
       if (doc.exists) {
         return doc.data()?.products || [];
       }
     } catch (e) {
-      console.warn('Firebase error in getSeoHistory', e);
+      handleFirestoreError('getSeoHistory', e);
     }
     return [];
   },
 
   async getAgentChatHistory() {
+    const db = getDb();
+    if (!db) return inMemoryChats;
     try {
-      const db = getDb();
       const snapshot = await db.collection('agent_chats').orderBy('timestamp', 'asc').get();
       const chats = snapshot.docs.map(doc => {
         const data = doc.data();
@@ -248,13 +316,13 @@ export const firebaseService = {
       });
       return chats.length > 0 ? chats : inMemoryChats;
     } catch (e: any) {
-      console.warn('Firebase error in getAgentChatHistory', e.message);
+      handleFirestoreError('getAgentChatHistory', e);
       return inMemoryChats;
     }
   },
 
   /**
-   * Salva o briefing de um SKU
+   * Deleta o briefing de um SKU
    */
   async deleteSkuBriefing(sku: string) {
     const runDelete = async () => {
@@ -263,12 +331,13 @@ export const firebaseService = {
         delete inMemoryBriefings[sku];
         saveLocalData('briefings.json', inMemoryBriefings);
       }
+      const db = getDb();
+      if (!db) return;
       try {
-        const db = getDb();
         await db.collection('sku_briefings').doc(sku).delete();
         console.log(`[Firebase] Briefing do SKU ${sku} deletado com sucesso.`);
       } catch (e: any) {
-        console.warn('Firebase error in deleteSkuBriefing, using local copy:', e.message);
+        handleFirestoreError('deleteSkuBriefing', e);
       }
     };
     const next = ((globalThis as any).__briefingsWriteQueue || Promise.resolve()).then(runDelete, runDelete);
@@ -315,15 +384,16 @@ export const firebaseService = {
       inMemoryBriefings[sku] = merged;
       saveLocalData('briefings.json', inMemoryBriefings);
 
+      const db = getDb();
+      if (!db) return;
       try {
-        const db = getDb();
         await db.collection('sku_briefings').doc(sku).set({
           ...merged,
           updatedAt: FieldValue.serverTimestamp()
         }, { merge: true });
         console.log(`[Firebase] Briefing do SKU ${sku} salvo com sucesso.`);
       } catch (e: any) {
-        console.warn('Firebase error in saveSkuBriefing, persisted locally:', e.message);
+        handleFirestoreError('saveSkuBriefing', e);
       }
     };
     const next = ((globalThis as any).__briefingsWriteQueue || Promise.resolve()).then(runSave, runSave);
@@ -332,7 +402,7 @@ export const firebaseService = {
   },
 
   /**
-   * Recupera todos os briefings de SKUs
+   * Renomeia e recupera todos os briefings de SKUs
    */
   async renameSkuBriefing(oldSku: string, newSku: string) {
     inMemoryBriefings = loadLocalData('briefings.json', inMemoryBriefings) || {};
@@ -341,35 +411,40 @@ export const firebaseService = {
       delete inMemoryBriefings[oldSku];
       saveLocalData('briefings.json', inMemoryBriefings);
     }
+    const db = getDb();
+    if (!db) return;
     try {
-      const db = getDb();
       const doc = await db.collection('sku_briefings').doc(oldSku).get();
       if (doc.exists) {
         const data = doc.data();
-        data.sku = newSku;
-        if (data.errorWaitingForSku) {
-          data.errorWaitingForSku = false;
+        if (data) {
+          data.sku = newSku;
+          if (data.errorWaitingForSku) {
+            data.errorWaitingForSku = false;
+          }
+          await db.collection('sku_briefings').doc(newSku).set(data);
+          await db.collection('sku_briefings').doc(oldSku).delete();
         }
-        await db.collection('sku_briefings').doc(newSku).set(data);
-        await db.collection('sku_briefings').doc(oldSku).delete();
       }
     } catch (e: any) {
-      // Local rename already executed
+      handleFirestoreError('renameSkuBriefing', e);
     }
   },
 
   async getSkuBriefings() {
-    try {
-      const db = getDb();
-      const snapshot = await db.collection('sku_briefings').orderBy('updatedAt', 'desc').get();
-      if (!snapshot.empty) {
-        return snapshot.docs.map(doc => ({ sku: doc.id, ...doc.data() }));
+    const db = getDb();
+    if (db) {
+      try {
+        const snapshot = await db.collection('sku_briefings').orderBy('updatedAt', 'desc').get();
+        if (!snapshot.empty) {
+          return snapshot.docs.map(doc => ({ sku: doc.id, ...doc.data() }));
+        }
+      } catch (e: any) {
+        handleFirestoreError('getSkuBriefings', e);
       }
-    } catch (e: any) {
-      // Firebase fallback to local memory/disk
     }
     inMemoryBriefings = loadLocalData('briefings.json', inMemoryBriefings) || {};
-    
+
     // Garantir que SKUs essenciais sempre existam se a memória estiver vazia
     if (!inMemoryBriefings['123Mart09015']) {
       inMemoryBriefings['123Mart09015'] = {
@@ -425,25 +500,28 @@ export const firebaseService = {
       isRead: false
     };
 
-    try {
-      const db = getDb();
-      const docRef = await db.collection('agent_chats').add({
-        text,
-        sender,
-        receiver,
-        timestamp: FieldValue.serverTimestamp(),
-        isRead: false
-      });
-      const savedMsg = { id: docRef.id, ...newMsg };
-      inMemoryChats.push(savedMsg);
-      saveLocalData('chats.json', inMemoryChats);
-      return savedMsg;
-    } catch (e: any) {
-      console.warn('Firebase error in saveAgentChatMessage', e.message);
-      const fallbackMsg = { id: Date.now().toString(), ...newMsg };
-      inMemoryChats.push(fallbackMsg);
-      saveLocalData('chats.json', inMemoryChats);
-      return fallbackMsg;
+    const db = getDb();
+    if (db) {
+      try {
+        const docRef = await db.collection('agent_chats').add({
+          text,
+          sender,
+          receiver,
+          timestamp: FieldValue.serverTimestamp(),
+          isRead: false
+        });
+        const savedMsg = { id: docRef.id, ...newMsg };
+        inMemoryChats.push(savedMsg);
+        saveLocalData('chats.json', inMemoryChats);
+        return savedMsg;
+      } catch (e: any) {
+        handleFirestoreError('saveAgentChatMessage', e);
+      }
     }
+
+    const fallbackMsg = { id: Date.now().toString(), ...newMsg };
+    inMemoryChats.push(fallbackMsg);
+    saveLocalData('chats.json', inMemoryChats);
+    return fallbackMsg;
   }
 };

@@ -1,4 +1,4 @@
-import { buildPlannerPrompt } from '../prompts/planner.js';
+import { buildPlannerPrompt, type ProductVisualAudit } from '../prompts/planner.js';
 import { buildMonitorPrompt } from '../prompts/monitor.js';
 import {
   buildManagerBriefingPrompt,
@@ -13,7 +13,7 @@ import {
   type ArtDirectionPlan,
   type ArtSlotPlan
 } from '../prompts/artDirector.js';
-import { GoogleGenAI, Type, Tool, HarmCategory, HarmBlockThreshold } from '@google/genai';
+import { GoogleGenAI, Type, Tool, HarmCategory, HarmBlockThreshold, ThinkingLevel } from '@google/genai';
 import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
@@ -22,6 +22,17 @@ import { nuvemshopService } from './nuvemshop.js';
 import { firebaseService } from './firebase.js';
 import { buildSeoExpertPrompt } from '../prompts/seoExpert.js';
 
+export interface CommercialSafetyAlert {
+  blockedAutoSave: boolean;
+  reason: string;
+  registeredPrice?: number;
+  marketAveragePrice?: number;
+  unitsShownInPhoto?: number;
+  titleSuggestsKit?: boolean;
+  detectedAt: number;
+  manualOverrideApproved?: boolean;
+}
+
 function getAiClient(): GoogleGenAI {
   return new GoogleGenAI({
     apiKey: process.env.GEMINI_API_KEY,
@@ -29,8 +40,14 @@ function getAiClient(): GoogleGenAI {
   });
 }
 
-// Instância padrão mantida para compatibilidade com métodos existentes
-const ai = getAiClient();
+function extractLocalizedText(val: any): string {
+  if (!val) return '';
+  if (typeof val === 'string') return val;
+  if (typeof val === 'object') {
+    return String(val.pt || val.en || val.es || Object.values(val).find((v) => typeof v === 'string') || '');
+  }
+  return String(val);
+}
 
 function parseSafeJson<T>(rawText: string, fallback: T): T {
   const cleaned = (rawText || '')
@@ -118,6 +135,53 @@ function getTargetAgentPersona(receiverId: string, fullAgentsDoc: string): strin
   return fullAgentsDoc.slice(0, 800);
 }
 
+/**
+ * Mapa unificado entre IDs curtos do Chat de Equipe (AgentWhatsApp) e IDs canônicos
+ * utilizados no painel de Recursos Humanos (RH & Acessos).
+ */
+const CHAT_TO_RH_AGENT_ID: Record<string, string> = {
+  'gerente': 'gerente-projetos',
+  'gerente-projetos': 'gerente-projetos',
+  'gerente-comercial': 'gerente-comercial',
+  'vendedor-1': 'vendedor-1',
+  'vendedor-2': 'vendedor-2',
+  'pesquisador': 'pesquisador-mercado',
+  'pesquisador-mercado': 'pesquisador-mercado',
+  'monitor': 'monitor-concorrencia',
+  'monitor-concorrencia': 'monitor-concorrencia',
+  'art': 'diretor-arte',
+  'diretor-arte': 'diretor-arte',
+  'copywriter': 'redator',
+  'redator': 'redator',
+  'social': 'social-media',
+  'social-media': 'social-media',
+  'ads': 'especialista-ads',
+  'especialista-ads': 'especialista-ads',
+  'seo': 'especialista-seo',
+  'especialista-seo': 'especialista-seo',
+  'merchant': 'especialista-merchant',
+  'especialista-merchant': 'especialista-merchant',
+  'metrics': 'analista-metricas',
+  'analista-metricas': 'analista-metricas',
+  'finance': 'analista-financeiro',
+  'analista-financeiro': 'analista-financeiro',
+};
+
+export function resolveRhAgentId(agentId: string): string {
+  const normalized = String(agentId || '').trim().toLowerCase();
+  return CHAT_TO_RH_AGENT_ID[normalized] || normalized;
+}
+
+export function getAgentPermissions(settings: any, agentId: string): Record<string, boolean> {
+  const allPerms = settings?.agentPermissions || {};
+  const rawKey = String(agentId || '').trim();
+  const canonicalKey = resolveRhAgentId(rawKey);
+  return {
+    ...(allPerms[rawKey] || {}),
+    ...(allPerms[canonicalKey] || {}),
+  };
+}
+
 // ==========================================
 // MÁQUINA DE ESTADOS: TOOLS DO GEMINI
 // ==========================================
@@ -178,14 +242,14 @@ export const aiService = {
     contents.push({ role: 'user', parts: [{ text: userMessage }] });
 
     try {
+      const client = getAiClient();
       // 4. Primeira chamada da API do Gemini injetando as Ferramentas (Tools)
-      let response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
+      let response = await client.models.generateContent({
+        model: 'gemini-4-hydrogen',
         contents,
         config: {
           systemInstruction,
           tools: crmTools,
-          temperature: 0.1, // Temperatura baixa para alta precisão
         }
       });
       
@@ -214,10 +278,10 @@ export const aiService = {
         contents.push({ role: 'user', parts: [{ functionResponse: { name: call.name, response: toolResult } }] });
 
         // 6. Rechama o Gemini com o contexto atualizado para ele gerar a resposta final em texto
-        response = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
+        response = await client.models.generateContent({
+          model: 'gemini-4-hydrogen',
           contents,
-          config: { systemInstruction, tools: crmTools, temperature: 0.1 }
+          config: { systemInstruction, tools: crmTools }
         });
       }
 
@@ -247,10 +311,10 @@ Por favor, faça um levantamento sobre:
 - Como eles estão agrupando ou vendendo este produto.
 - Informações sobre frete e condições de pagamento oferecidas.`;
 
-    const plannerResult = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+    const client = getAiClient();
+    const plannerResult = await client.models.generateContent({
+      model: 'gemini-4-hydrogen',
       contents: plannerPrompt,
-      config: { temperature: 0.5 }
     });
     const plannerResponse = plannerResult.text;
     if (onStepComplete) onStepComplete('planner', plannerPrompt, plannerResponse || '');
@@ -265,10 +329,9 @@ Defina uma estratégia de benchmark:
 - Qual deve ser nosso preço alvo para sermos competitivos?
 - Quais diferenciais devemos oferecer (ex: frete expresso, brindes) para superar essa concorrência?`;
 
-    const monitorResult = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+    const monitorResult = await client.models.generateContent({
+      model: 'gemini-4-hydrogen',
       contents: monitorPrompt,
-      config: { temperature: 0.5 }
     });
     const monitorResponse = monitorResult.text;
     if (onStepComplete) onStepComplete('monitor', monitorPrompt, monitorResponse || '');
@@ -289,10 +352,9 @@ Para validar essa estratégia e chegar ao preço mínimo de venda viável (Break
 
 Faça os cálculos de viabilidade (markup/markdown) com base nessas premissas financeiras reais. Diga se a estratégia de preço proposta pelo Monitor de Concorrência é viável financeiramente, ou sugira qual deve ser o preço exato para atingir a margem desejada.`;
 
-    const financeResult = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+    const financeResult = await client.models.generateContent({
+      model: 'gemini-4-hydrogen',
       contents: financePrompt,
-      config: { temperature: 0.5 }
     });
     const financeResponse = financeResult.text;
     if (onStepComplete) onStepComplete('finance', financePrompt, financeResponse || '');
@@ -305,11 +367,125 @@ Faça os cálculos de viabilidade (markup/markdown) com base nessas premissas fi
   },
   
   
+  /**
+   * ETAPA 0 (Vision-First): Lê fisicamente até 4 fotos reais do anúncio na Nuvemshop ANTES do Planner e Monitor,
+   * extraindo Marca Comercial, Fabricante oficial impresso no rótulo, volume unitário, número de unidades na foto
+   * e eventual divergência de Kit/Preço.
+   */
+  async inspectProductPackaging(productData: any): Promise<ProductVisualAudit | null> {
+    const rawImages = Array.isArray(productData?.images) ? productData.images : [];
+    const validImages = rawImages
+      .filter((img: any) => img?.src && !isInvalidCatalogImage(img.src))
+      .slice(0, 4);
+
+    if (validImages.length === 0) return null;
+
+    const imageParts: any[] = [];
+    for (let i = 0; i < validImages.length; i++) {
+      const img = validImages[i];
+      try {
+        let buf: Buffer | null = null;
+        if (img.src.startsWith('http://') || img.src.startsWith('https://')) {
+          const dl = await axios.get(img.src, {
+            responseType: 'arraybuffer',
+            timeout: 12000,
+            headers: { 'User-Agent': '123Mart VisionAudit/1.0' },
+          });
+          buf = Buffer.from(dl.data);
+        } else {
+          const rel = img.src.replace(/^\//, '');
+          const localPath = path.join(process.cwd(), 'public', rel);
+          if (fs.existsSync(localPath)) buf = fs.readFileSync(localPath);
+        }
+
+        if (buf) {
+          const resized = await sharp(buf)
+            .resize(640, 640, { fit: 'inside', withoutEnlargement: true })
+            .jpeg({ quality: 82 })
+            .toBuffer();
+          imageParts.push({ text: `[FOTO ${i + 1} DE ${validImages.length}]` });
+          imageParts.push({
+            inlineData: {
+              data: resized.toString('base64'),
+              mimeType: 'image/jpeg',
+            },
+          });
+        }
+      } catch (err: any) {
+        console.warn(`[Vision-First Audit] Falha ao baixar foto ${i + 1}:`, err?.message);
+      }
+    }
+
+    const photosInspected = imageParts.filter((p) => p.inlineData).length;
+    if (photosInspected === 0) return null;
+
+    try {
+      const client = getAiClient();
+      const productName = extractLocalizedText(productData?.name);
+      const auditPrompt = `Você é um Auditor Técnico de Embalagens de E-commerce.
+Inspecione cuidadosamente as fotos reais do produto abaixo e extraia EXCLUSIVAMENTE o que está fisicamente impresso nos rótulos/embalagens (NUNCA chute marcas ou fabricantes concorrentes).
+
+Dados cadastrados no anúncio:
+- SKU: ${productData?.sku || 'N/A'}
+- Título Cadastrado: ${productName}
+- Preço Cadastrado: R$ ${productData?.price ?? 'N/A'}
+- Marca Cadastrada: ${productData?.brand || 'Não informada'}
+
+Retorne ESTRITAMENTE um JSON puro com este formato:
+{
+  "officialBrand": "Marca comercial principal impressa no rótulo frontal (ex: Aquapool)",
+  "verifiedManufacturer": "Nome do fabricante real impresso na embalagem/logotipo de fábrica (ex: Start Química). Deixe string vazia se não estiver visível nas fotos.",
+  "unitVolume": "Volume ou peso unitário impresso na embalagem (ex: 1 Litro, 1 kg, 500 ml)",
+  "unitsShownInPhoto": 1,
+  "labelClaims": ["Frase ou benefício real impresso no rótulo 1", "Frase 2"],
+  "kitMismatchDetected": false,
+  "kitMismatchNote": "Se o título cadastrado sugerir kit/caixa múltipla (ex: 6X1L) mas a foto mostrar apenas 1 unidade ou o preço parecer de unidade única, explique objetivamente aqui; caso contrário deixe vazio."
+}`;
+
+      const response = await client.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: [{ role: 'user', parts: [...imageParts, { text: auditPrompt }] }],
+        config: {
+          responseMimeType: 'application/json',
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+        },
+      });
+
+      const parsed = parseSafeJson<Partial<ProductVisualAudit>>(response.text || '{}', {});
+      const cleanManuf =
+        typeof parsed.verifiedManufacturer === 'string' &&
+        parsed.verifiedManufacturer.trim().length > 0 &&
+        !/confirmar|não vis[ií]vel|n\/a|desconhecid/i.test(parsed.verifiedManufacturer)
+          ? parsed.verifiedManufacturer.trim()
+          : undefined;
+
+      const audit: ProductVisualAudit = {
+        officialBrand: (parsed.officialBrand || productData?.brand || '').trim(),
+        verifiedManufacturer: cleanManuf,
+        unitVolume: (parsed.unitVolume || '').trim() || undefined,
+        unitsShownInPhoto: typeof parsed.unitsShownInPhoto === 'number' ? parsed.unitsShownInPhoto : undefined,
+        labelClaims: Array.isArray(parsed.labelClaims) ? parsed.labelClaims.filter((c) => typeof c === 'string' && c.trim()) : [],
+        kitMismatchDetected: Boolean(parsed.kitMismatchDetected),
+        kitMismatchNote: (parsed.kitMismatchNote || '').trim() || undefined,
+        photosInspected,
+      };
+
+      console.log(
+        `[👁️ Etapa 0 Vision-First - SKU ${productData?.sku}] Marca="${audit.officialBrand}" | Fabricante="${audit.verifiedManufacturer || 'N/A'}" | Unidades na Foto=${audit.unitsShownInPhoto ?? '?'} | KitMismatch=${audit.kitMismatchDetected}`
+      );
+      return audit;
+    } catch (err: any) {
+      console.warn(`[Vision-First Audit] Erro na auditoria visual do SKU ${productData?.sku}:`, err?.message);
+      return null;
+    }
+  },
+
   async generateManagerBriefing(
     productData: any,
     plannerSummary: string,
     monitorSummary: string,
-    officialBrand: string
+    officialBrand: string,
+    visualAudit?: ProductVisualAudit | null
   ): Promise<{
     briefing: ManagerStrategicBriefing;
     markdown: string;
@@ -317,7 +493,7 @@ Faça os cálculos de viabilidade (markup/markdown) com base nessas premissas fi
     usage?: any;
   }> {
     const client = getAiClient();
-    const prompt = buildManagerBriefingPrompt(productData, plannerSummary, monitorSummary, officialBrand);
+    const prompt = buildManagerBriefingPrompt(productData, plannerSummary, monitorSummary, officialBrand, visualAudit);
 
     const result = await client.models.generateContent({
       model: 'gemini-4-hydrogen',
@@ -327,10 +503,12 @@ Faça os cálculos de viabilidade (markup/markdown) com base nessas premissas fi
       },
     });
 
+    const preferredManufacturer = visualAudit?.verifiedManufacturer || officialBrand;
+
     const fallbackBriefing: ManagerStrategicBriefing = {
       sku: productData.sku || '',
       officialBrand,
-      manufacturer: officialBrand,
+      manufacturer: preferredManufacturer,
       productCategory: 'E-commerce Geral',
       targetPersona: 'Consumidor buscando desempenho, segurança e custo-benefício comprovado.',
       positioningDirective: `Posicionar ${productData.name} (${officialBrand}) com clareza técnica, destaque de benefícios reais e foco em conversão.`,
@@ -367,10 +545,10 @@ Faça os cálculos de viabilidade (markup/markdown) com base nessas premissas fi
       };
     });
 
-    const briefing: ManagerStrategicBriefing = {
+    let briefing: ManagerStrategicBriefing = {
       sku: parsed.sku || productData.sku || '',
-      officialBrand: (parsed.officialBrand || officialBrand).trim(),
-      manufacturer: (parsed.manufacturer || parsed.officialBrand || officialBrand).trim(),
+      officialBrand: (visualAudit?.officialBrand || parsed.officialBrand || officialBrand).trim(),
+      manufacturer: (visualAudit?.verifiedManufacturer || parsed.manufacturer || parsed.officialBrand || officialBrand).trim(),
       productCategory: parsed.productCategory || fallbackBriefing.productCategory,
       targetPersona: parsed.targetPersona || fallbackBriefing.targetPersona,
       positioningDirective: parsed.positioningDirective || fallbackBriefing.positioningDirective,
@@ -384,6 +562,10 @@ Faça os cálculos de viabilidade (markup/markdown) com base nessas premissas fi
       copyTriggers: Array.isArray(parsed.copyTriggers) && parsed.copyTriggers.length > 0 ? parsed.copyTriggers : fallbackBriefing.copyTriggers,
       slotAgenda: normalizedAgenda,
     };
+
+    if (visualAudit?.verifiedManufacturer) {
+      briefing = this.sanitizeBriefingManufacturer(briefing, visualAudit.verifiedManufacturer);
+    }
 
     const markdown = formatManagerBriefingMarkdown(briefing, productData.sku, productData.name || `Produto ${productData.sku}`);
     return { briefing, markdown, prompt, usage: result.usageMetadata };
@@ -548,17 +730,26 @@ Faça os cálculos de viabilidade (markup/markdown) com base nessas premissas fi
 
     const client = getAiClient();
 
+    // ETAPA 0 (VISION-FIRST): Leitura física do rótulo real ANTES do Planner e Monitor para zerar alucinações de fabricante
+    const visualAudit = await this.inspectProductPackaging(productData);
+    if (onStepComplete && visualAudit) {
+      onStepComplete('visual_audit', 'Auditoria Visual Prévia (Etapa 0)', JSON.stringify(visualAudit, null, 2), {
+        visualAudit,
+      });
+    }
+
     // 1. Extração de Dados Reais (Background)
     let realTrends = '';
     let realQuotes = '';
+    let quotesDataObj: any = null;
     try {
       const trendsData = await this.searchMarketplaceTrends(productData.name);
       realTrends = JSON.stringify(trendsData);
     } catch { realTrends = 'Não foi possível buscar tendências em tempo real.'; }
 
     try {
-      const quotesData = await this.searchProductQuotes(productData.name);
-      realQuotes = JSON.stringify(quotesData);
+      quotesDataObj = await this.searchProductQuotes(productData.name);
+      realQuotes = JSON.stringify(quotesDataObj);
     } catch { realQuotes = 'Não foi possível buscar cotações em tempo real.'; }
 
     console.log(`\n================================================================`);
@@ -568,8 +759,8 @@ Faça os cálculos de viabilidade (markup/markdown) com base nessas premissas fi
     let totalPipelineTokens = 0;
     const tokenAuditMap: Record<string, any> = {};
 
-    // ETAPA 1: Pesquisador de Mercado (Planner)
-    const plannerPrompt = buildPlannerPrompt(productData, realTrends);
+    // ETAPA 1: Pesquisador de Mercado (Planner) — agora ancorado na Auditoria Visual real
+    const plannerPrompt = buildPlannerPrompt(productData, realTrends, visualAudit);
     const plannerResult = await client.models.generateContent({
       model: 'gemini-3.1-flash-lite',
       contents: plannerPrompt,
@@ -586,8 +777,8 @@ Faça os cálculos de viabilidade (markup/markdown) com base nessas premissas fi
       ? plannerResponse.slice(0, 1500) + '... [Resumo Estratégico]'
       : plannerResponse;
 
-    // ETAPA 2: Monitor de Inteligência Competitiva
-    const monitorPrompt = buildMonitorPrompt(productData, realQuotes, plannerSummary);
+    // ETAPA 2: Monitor de Inteligência Competitiva — ancorado na Auditoria Visual real
+    const monitorPrompt = buildMonitorPrompt(productData, realQuotes, plannerSummary, visualAudit);
     const monitorResult = await client.models.generateContent({
       model: 'gemini-3.1-flash-lite',
       contents: monitorPrompt,
@@ -605,7 +796,7 @@ Faça os cálculos de viabilidade (markup/markdown) com base nessas premissas fi
       : monitorResponse;
 
     // Homologação inicial da Marca Oficial (Ecossistema Multimarcas 123Mart)
-    let dynamicBrand = (productData.brand || '').trim();
+    let dynamicBrand = (visualAudit?.officialBrand || productData.brand || '').trim();
     if (!dynamicBrand) {
       const brandMatch =
         plannerResponse.match(/Marca Comercial Homologada:\s*\*?\*?([^\n\*\r]+)/i) ||
@@ -621,7 +812,8 @@ Faça os cálculos de viabilidade (markup/markdown) com base nessas premissas fi
       productData,
       plannerSummary,
       monitorSummary,
-      detectedBrand
+      detectedBrand,
+      visualAudit
     );
     const officialBrand = managerOut.briefing.officialBrand || detectedBrand;
 
@@ -634,18 +826,25 @@ Faça os cálculos de viabilidade (markup/markdown) com base nessas premissas fi
       onStepComplete('manager', managerOut.prompt, managerOut.markdown, {
         managerBriefing: managerOut.briefing,
         officialBrand,
+        visualAudit,
       });
     }
 
     // ETAPA 4 (PADRÃO AGÊNCIA): Diretor de Arte Multimodal recebe o Briefing Estratégico + TODAS as fotos da Nuvemshop
     const artOut = await this.generateArtDirectionPlan(productData, managerOut.briefing);
 
-    // Sincronização visual de fabricante: se o Diretor de Arte leu o fabricante real no rótulo da foto,
-    // sanitiza TODOS os campos do Briefing Mestre antes do Especialista SEO para 100% de coerência!
-    if (artOut.plan.verifiedManufacturer) {
+    // Sincronização visual de fabricante: se o Diretor de Arte (ou Etapa 0) leu o fabricante real no rótulo da foto,
+    // sanitiza TODOS os campos do Briefing Mestre (incluindo slotAgenda) e regenera o Markdown da Etapa 5!
+    const confirmedManufacturer = artOut.plan.verifiedManufacturer || visualAudit?.verifiedManufacturer;
+    if (confirmedManufacturer) {
       managerOut.briefing = this.sanitizeBriefingManufacturer(
         managerOut.briefing,
-        artOut.plan.verifiedManufacturer
+        confirmedManufacturer
+      );
+      managerOut.markdown = formatManagerBriefingMarkdown(
+        managerOut.briefing,
+        productData.sku,
+        productData.name || `Produto ${productData.sku}`
       );
     }
 
@@ -658,6 +857,8 @@ Faça os cálculos de viabilidade (markup/markdown) com base nessas premissas fi
       onStepComplete('art', artOut.prompt, artOut.markdown, {
         artPlan: artOut.plan,
         managerBriefing: managerOut.briefing,
+        manager: managerOut.markdown,
+        visualAudit,
       });
     }
 
@@ -692,8 +893,48 @@ ${seoSystemContext}`;
       console.log(`[📊 Token Audit] 5. Especialista SEO: ${seoTokens.totalTokenCount} tokens`);
     }
 
+    // TRAVA COMERCIAL DE SEGURANÇA (Preço/Kit Sanity Guard):
+    // Evita publicar automaticamente um anúncio intitulado como Kit/Caixa múltipla a preço de unidade única.
+    const registeredPrice = parseFloat(String(productData?.price ?? '').replace(',', '.')) || 0;
+    const marketAvg = Number(quotesDataObj?.averagePrice) || 0;
+    const productNameStr = extractLocalizedText(productData?.name);
+    const titleSuggestsKit = /\b(kit|caixa|cx|pack|fardo|combo)\b|\b\d+\s*[xX]\s*\d+/i.test(productNameStr);
+    const unitsShownInPhoto = visualAudit?.unitsShownInPhoto;
+
+    let commercialAlert: CommercialSafetyAlert | undefined;
+    const hasSevereKitPriceMismatch =
+      (titleSuggestsKit && unitsShownInPhoto === 1 && registeredPrice > 0 && marketAvg > 0 && registeredPrice < marketAvg * 0.5) ||
+      (registeredPrice > 0 && marketAvg > 0 && registeredPrice < marketAvg * 0.45) ||
+      (Boolean(visualAudit?.kitMismatchDetected) && registeredPrice > 0 && marketAvg > 0 && registeredPrice < marketAvg * 0.65);
+
+    if (hasSevereKitPriceMismatch) {
+      const ratioPct = Math.round((registeredPrice / marketAvg) * 100);
+      const reasonParts: string[] = [
+        `Preço cadastrado (R$ ${registeredPrice.toFixed(2)}) está muito abaixo da média de mercado (R$ ${marketAvg.toFixed(2)} — apenas ${ratioPct}% do valor médio).`,
+      ];
+      if (titleSuggestsKit && unitsShownInPhoto === 1) {
+        reasonParts.push(`O título sugere Kit/Caixa múltipla ("${productNameStr}"), mas a foto principal mostra apenas 1 unidade.`);
+      } else if (visualAudit?.kitMismatchNote) {
+        reasonParts.push(visualAudit.kitMismatchNote);
+      }
+      reasonParts.push('Publicação automática na Nuvemshop PAUSADA por segurança comercial para evitar prejuízo. Revise o preço/título e publique manualmente pela Etapa 9 (Briefings).');
+
+      commercialAlert = {
+        blockedAutoSave: true,
+        reason: reasonParts.join(' '),
+        registeredPrice,
+        marketAveragePrice: marketAvg,
+        unitsShownInPhoto,
+        titleSuggestsKit,
+        detectedAt: Date.now(),
+      };
+      console.warn(`🛑 [Trava Comercial - SKU ${productData.sku}] ${commercialAlert.reason}`);
+    }
+
     let saveMessage = 'Não foi possível salvar o anúncio (nenhum callback fornecido).';
-    if (saveProductCallback) {
+    if (commercialAlert?.blockedAutoSave) {
+      saveMessage = `⚠️ PUBLICAÇÃO AUTOMÁTICA PAUSADA POR SEGURANÇA COMERCIAL: ${commercialAlert.reason}`;
+    } else if (saveProductCallback) {
       try {
         await saveProductCallback(seoJson);
         saveMessage = 'Anúncio otimizado e salvo na Nuvemshop com sucesso!';
@@ -706,6 +947,7 @@ ${seoSystemContext}`;
     const seoResponsePayloadJSON = JSON.stringify(
       {
         message: saveMessage,
+        commercialAlert: commercialAlert || null,
         otimizacaoSEO: seoJson,
         diretrizes: 'Trabalho técnico de SEO concluído com base no Briefing Mestre Estratégico do Gerente de Projetos.',
       },
@@ -716,6 +958,8 @@ ${seoSystemContext}`;
     if (onStepComplete) {
       onStepComplete('seo', seoPrompt, seoResponsePayloadJSON, {
         seoData: seoJson,
+        commercialAlert: commercialAlert || null,
+        visualAudit,
         finishedAt: Date.now(),
       });
     }
@@ -762,11 +1006,11 @@ Retorne ESTRITAMENTE um JSON puro no seguinte formato:
 }`;
 
     try {
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
+      const client = getAiClient();
+      const response = await client.models.generateContent({
+        model: 'gemini-4-hydrogen',
         contents: prompt,
         config: {
-          temperature: 0.7,
           responseMimeType: 'application/json',
           responseSchema: {
             type: "OBJECT",
@@ -805,11 +1049,11 @@ Retorne ESTRITAMENTE um JSON puro no seguinte formato (invente dados realistas e
 }`;
 
     try {
-      const response = await ai.models.generateContent({
+      const client = getAiClient();
+      const response = await client.models.generateContent({
         model: 'gemini-3.1-flash-lite',
         contents: prompt,
         config: {
-          temperature: 0.5,
           responseMimeType: 'application/json',
           responseSchema: {
             type: "OBJECT",
@@ -849,11 +1093,11 @@ Retorne ESTRITAMENTE um JSON puro no seguinte formato (invente dados extremament
 }`;
 
     try {
-      const response = await ai.models.generateContent({
+      const client = getAiClient();
+      const response = await client.models.generateContent({
         model: 'gemini-3.1-flash-lite',
         contents: prompt,
         config: {
-          temperature: 0.3,
           responseMimeType: 'application/json',
           responseSchema: {
             type: "OBJECT",
@@ -930,11 +1174,11 @@ Retorne ESTRITAMENTE um JSON puro com o seguinte formato:
 }`;
 
     try {
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
+      const client = getAiClient();
+      const response = await client.models.generateContent({
+        model: 'gemini-4-hydrogen',
         contents: prompt,
         config: {
-          temperature: 0.6,
           responseMimeType: 'application/json',
           responseSchema: {
             type: "OBJECT",
@@ -1026,11 +1270,29 @@ Retorne ESTRITAMENTE um JSON puro com o seguinte formato:
       }
     }
 
-    // Ordena do mais longo para o mais curto para evitar substituições parciais
+    // Ordena do mais longo para o mais curto para evitar substituições parciais.
+    // Usa alternância protegida (cleanVerified|term) com fronteiras Unicode para impedir duplicação
+    // quando o termo antigo é prefixo/substring do fabricante confirmado (ex: "Start" dentro de "Start Química").
+    const escapedVerified = escapeRegex(cleanVerified);
     const sortedPatterns = candidateTerms
       .filter((t) => t.length >= 4 && t.toLowerCase() !== officialBrand && t.toLowerCase() !== cleanVerified.toLowerCase())
       .sort((a, b) => b.length - a.length)
-      .map((term) => new RegExp(escapeRegex(term), 'gi'));
+      .map(
+        (term) =>
+          new RegExp(`(?<![\\p{L}\\p{N}])(?:${escapedVerified}|${escapeRegex(term)})(?![\\p{L}\\p{N}])`, 'giu')
+      );
+
+    // Expressões de limpeza para colapsar eventual repetição de tokens do fabricante confirmado (ex: "Start Química Química")
+    const verifiedRepeatedPattern = new RegExp(
+      `(?<![\\p{L}\\p{N}])(${escapedVerified})(?:\\s+\\1)+(?![\\p{L}\\p{N}])`,
+      'giu'
+    );
+    const verifiedTokens = Array.from(
+      new Set(cleanVerified.split(/\s+/).filter((tok) => tok.length >= 3))
+    );
+    const duplicateTokenPatterns = verifiedTokens.map(
+      (tok) => new RegExp(`(?<![\\p{L}\\p{N}])(${escapeRegex(tok)})(?:\\s+\\1)+(?![\\p{L}\\p{N}])`, 'giu')
+    );
 
     const sanitizeText = (text: string): string => {
       if (typeof text !== 'string' || !text) return text;
@@ -1040,6 +1302,11 @@ Retorne ESTRITAMENTE um JSON puro com o seguinte formato:
       }
       // Garante que rótulos explícitos "Fabricante: ..." também apontem para o fabricante confirmado
       out = out.replace(/Fabricante\s*:\s*[^|;\n]+/gi, `Fabricante: ${cleanVerified}`);
+      // Colapsa eventuais duplicações do nome completo ou de palavras repetidas consecutivas
+      out = out.replace(verifiedRepeatedPattern, cleanVerified);
+      for (const tokRe of duplicateTokenPatterns) {
+        out = out.replace(tokRe, '$1');
+      }
       return out;
     };
 
@@ -1055,6 +1322,16 @@ Retorne ESTRITAMENTE um JSON puro com o seguinte formato:
       nextFacts.push(`Fabricante confirmado visualmente no rótulo: ${cleanVerified}`);
     }
 
+    const nextSlotAgenda = Array.isArray(briefing.slotAgenda)
+      ? briefing.slotAgenda.map((slot: any) => ({
+          ...slot,
+          commercialObjective: sanitizeText(slot?.commercialObjective),
+          keyBenefit: sanitizeText(slot?.keyBenefit),
+          objectionToBreak: sanitizeText(slot?.objectionToBreak),
+          mustIncludeFacts: sanitizeList(slot?.mustIncludeFacts),
+        }))
+      : briefing.slotAgenda;
+
     return {
       ...briefing,
       manufacturer: cleanVerified,
@@ -1064,6 +1341,7 @@ Retorne ESTRITAMENTE um JSON puro com o seguinte formato:
       topObjections: sanitizeList(briefing.topObjections),
       verifiedTechnicalFacts: nextFacts,
       copyTriggers: sanitizeList(briefing.copyTriggers),
+      slotAgenda: nextSlotAgenda,
     };
   },
 
@@ -1080,16 +1358,22 @@ Retorne ESTRITAMENTE um JSON puro com o seguinte formato:
        prompt += `\n\n[AÇÃO MANDATÓRIA - ORDEM DO GERENTE DE PROJETOS]:\nVocê DEVE obedecer ao seguinte BRIEFING EXECUTIVO na construção do SEO (Título, Copy, Meta):\n"${briefing}"\nQuebre as objeções apontadas e adote o ângulo de venda sugerido.`;
     }
     
+    const safeName = extractLocalizedText(productData.name);
+    const safeDesc = extractLocalizedText(productData.description);
+    const safeSeoDesc = extractLocalizedText(productData.seo_description);
+    const safeHandle = extractLocalizedText(productData.handle);
+    const safeTags = extractLocalizedText(productData.tags);
+
     prompt += `\n\n
 
 Produto original a ser pesquisado:
-Nome: ${productData.name}
+Nome: ${safeName}
 Preço: ${productData.price}
 Marca Original: ${productData.brand || 'Não cadastrada'}
-Tags Originais: ${productData.tags || 'Sem tags'}
-Descrição Original (geralmente pobre): ${productData.description || 'Sem descrição'}
-Meta Description Original: ${productData.seo_description || 'Vazia'}
-URL Original: ${productData.handle || 'Sem URL'}
+Tags Originais: ${safeTags || 'Sem tags'}
+Descrição Original (geralmente pobre): ${safeDesc || 'Sem descrição'}
+Meta Description Original: ${safeSeoDesc || 'Vazia'}
+URL Original: ${safeHandle || 'Sem URL'}
 
 Formato obrigatório de retorno (JSON puro):
 {
@@ -1119,12 +1403,12 @@ Formato obrigatório de retorno (JSON puro):
 }`;
 
     try {
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
+      const client = getAiClient();
+      const response = await client.models.generateContent({
+        model: 'gemini-4-hydrogen',
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         config: {
           systemInstruction,
-          temperature: 0.3,
           safetySettings: [
             { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
             { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
@@ -1223,9 +1507,16 @@ Formato obrigatório de retorno (JSON puro):
       const resolvedSku = activeSku || (detectedSkuMatch ? detectedSkuMatch[0] : null);
       const resolvedProductName = activeProductName || (resolvedSku ? `Produto ${resolvedSku}` : null);
 
-      // Lê as configurações e permissões
+      // Lê as configurações e permissões resolvendo o ID canônico do RH (ex: 'gerente' -> 'gerente-projetos')
       const settings = await firebaseService.getSettings();
-      const hasNuvemshopApi = settings?.agentPermissions?.[receiver]?.['nuvemshop-api'] === true;
+      const rhAgentId = resolveRhAgentId(receiver);
+      const agentPerms = getAgentPermissions(settings, receiver);
+      const hasNuvemshopApi = agentPerms['nuvemshop-api'] === true;
+      const hasVisionApi = agentPerms['vision-api'] === true;
+
+      const enabledToolIds = Object.entries(agentPerms)
+        .filter(([, enabled]) => enabled === true)
+        .map(([toolId]) => toolId);
 
       // Lê e extrai apenas a persona específica do agente alvo (evitando injetar manual inteiro)
       let targetPersona = '';
@@ -1246,6 +1537,13 @@ Formato obrigatório de retorno (JSON puro):
 - REQUISITO ABSOLUTO: Toda e qualquer ordem, análise, pesquisa, benchmark ou repasse entre agentes [ENCAMINHAR_PARA] DEVE conter expressamente este SKU ("${resolvedSku}"). É proibido usar "undefined" ou deixar de indicar o código do SKU.
 ` : '';
 
+      const permissionsDirective = `
+[ALÇADAS REAIS LIBERADAS NO PAINEL RH & ACESSOS PARA "${rhAgentId}"]:
+- API Nuvemshop (nuvemshop-api): ${hasNuvemshopApi ? 'LIBERADA — você PODE e DEVE chamar a ferramenta buscarProdutosNuvemshop passando o SKU quando precisar auditar cadastro, título, tags, seo_title, seo_description, marca ou descrição ao vivo na loja.' : 'BLOQUEADA — não habilitada no RH para este agente.'}
+- Cloud Vision API (vision-api): ${hasVisionApi ? 'LIBERADA' : 'BLOQUEADA'}
+- Demais chaves habilitadas no RH: ${enabledToolIds.length > 0 ? enabledToolIds.join(', ') : 'nenhuma'}
+`;
+
       // Constrói o contexto para o Gemini
       const prompt = `Você faz parte de uma equipe de Agentes de IA da empresa 123Mart.
 Sua Diretriz / Persona Oficial:
@@ -1254,14 +1552,15 @@ ${targetPersona}
 ---
 
 ${skuDirective}
+${permissionsDirective}
 
-O seu ID de agente é: "${receiver}". Assuma a persona, a atitude e as ferramentas correspondentes ao seu ID. 
+O seu ID de agente é: "${receiver}" (perfil RH: "${rhAgentId}"). Assuma a persona, a atitude e as ferramentas correspondentes ao seu ID. 
 Você acabou de receber uma mensagem de: "${sender}".
 
 Mensagem recebida:
 "${text}"
 
-Responda diretamente e de forma concisa. Se você for o Gerente de Projetos e a ordem for para outro agente, use a tag [ENCAMINHAR_PARA: id_do_agente].
+Responda diretamente, com dados concretos das ferramentas quando tiver permissão, e de forma concisa. Se você for o Gerente de Projetos e a ordem exigir ação operacional de outro agente, use a tag [ENCAMINHAR_PARA: id_do_agente].
 IDs oficiais disponíveis: diretoria, gerente, pesquisador, seo, monitor, art, copywriter, social, ads, merchant, metrics, finance.
 Exemplo: [ENCAMINHAR_PARA: pesquisador] Olá pesquisador, realize a pesquisa e levantamento para o SKU ${resolvedSku || '123Mart...'}.`;
 
@@ -1269,11 +1568,20 @@ Exemplo: [ENCAMINHAR_PARA: pesquisador] Olá pesquisador, realize a pesquisa e l
         functionDeclarations: [
           {
             name: 'buscarProdutosNuvemshop',
-            description: 'Acessa a Nuvemshop e retorna os produtos/anúncios ativos, incluindo as URLs de suas imagens.'
+            description: 'Consulta AO VIVO na API da Nuvemshop o cadastro completo de um produto por SKU (ex: 123Mart09048), ID ou termo de busca — retornando título, seo_title, seo_description, tags, marca, descrição, imagens e comparativo com o último briefing salvo da esteira.',
+            parameters: {
+              type: Type.OBJECT,
+              properties: {
+                skuOuTermo: {
+                  type: Type.STRING,
+                  description: 'SKU exato do produto (ex: 123Mart09048), ID numérico da Nuvemshop ou termo de busca.'
+                }
+              }
+            }
           },
           {
             name: 'avaliarImagem',
-            description: 'Avalia o SEO e a relevância de uma imagem através de sua URL. Use esta ferramenta antes de gerar o relatório final se precisar das notas.',
+            description: 'Avalia o SEO e a relevância de uma imagem através de sua URL (requer permissão Cloud Vision API no RH).',
             parameters: {
               type: Type.OBJECT,
               properties: {
@@ -1285,7 +1593,7 @@ Exemplo: [ENCAMINHAR_PARA: pesquisador] Olá pesquisador, realize a pesquisa e l
           },
           {
              name: 'gerarRelatorioPDF',
-             description: 'Gera um arquivo PDF oficial com o conteúdo do relatório e retorna o link.',
+             description: 'Registra o conteúdo estruturado de um relatório para consulta na aba de Briefings/Auditoria.',
              parameters: {
                type: Type.OBJECT,
                properties: {
@@ -1297,18 +1605,18 @@ Exemplo: [ENCAMINHAR_PARA: pesquisador] Olá pesquisador, realize a pesquisa e l
         ]
       }];
 
-      let contents = [{ role: 'user', parts: [{ text: prompt }] }];
+      let contents: any[] = [{ role: 'user', parts: [{ text: prompt }] }];
       let aiText = '';
       let shouldContinue = true;
       let loopCount = 0;
 
-      while (shouldContinue && loopCount < 2) {
+      const client = getAiClient();
+      while (shouldContinue && loopCount < 3) {
         loopCount++;
-        const response = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
+        const response = await client.models.generateContent({
+          model: 'gemini-4-hydrogen',
           contents,
           config: {
-            temperature: 0.7,
             tools
           }
         });
@@ -1317,26 +1625,69 @@ Exemplo: [ENCAMINHAR_PARA: pesquisador] Olá pesquisador, realize a pesquisa e l
           // Adiciona a chamada da função ao histórico preservando todos os parts originais
           const modelParts: any = response.candidates?.[0]?.content?.parts || response.functionCalls.map((c: any) => ({ functionCall: c }));
           contents.push({ role: 'model', parts: modelParts });
-          
+
           const toolResults = [];
           for (const call of response.functionCalls) {
             let result = '';
             if (call.name === 'buscarProdutosNuvemshop') {
-               if (!hasNuvemshopApi) {
-                 result = '[SISTEMA]: Acesso Negado. Você não possui a permissão "API Nuvemshop" habilitada no painel de Recursos Humanos (RH). Informe ao usuário que você precisa dessa liberação para prosseguir.';
-               } else {
-                 try {
-                   result = await nuvemshopService.searchProducts('');
-                 } catch (e) {
-                   result = '[ERRO]: Falha ao buscar produtos reais na Nuvemshop.';
-                 }
-               }
+              if (!hasNuvemshopApi) {
+                result = `[SISTEMA]: Acesso Negado. O agente "${rhAgentId}" não possui a permissão "API Nuvemshop" habilitada no painel de Recursos Humanos (RH). Informe ao usuário que você precisa dessa liberação para prosseguir.`;
+              } else {
+                try {
+                  const requestedQuery = String((call.args as any)?.skuOuTermo || resolvedSku || '').trim();
+                  const liveData = requestedQuery
+                    ? await nuvemshopService.getProductDetailsBySku(requestedQuery)
+                    : await nuvemshopService.searchProducts('');
+
+                  // Cruza com o histórico da esteira local (briefings.json) quando houver SKU
+                  let briefingAudit = '';
+                  const skuToCheck = (/^123mart[a-zA-Z0-9_-]+$/i.test(requestedQuery) ? requestedQuery : resolvedSku) || '';
+                  if (skuToCheck) {
+                    try {
+                      const allBriefings = await firebaseService.getSkuBriefings();
+                      const matchBriefing: any = (allBriefings || []).find(
+                        (b: any) => String(b?.sku || '').toLowerCase() === skuToCheck.toLowerCase()
+                      );
+                      if (matchBriefing) {
+                        const seo = matchBriefing.seoData || {};
+                        const webhookStep = (matchBriefing.steps || []).find((s: any) => s.id === '9' || s.type === 'webhook');
+                        briefingAudit = [
+                          '',
+                          `[ESTEIRA INTERNA - ÚLTIMO BRIEFING SALVO PARA ${matchBriefing.sku}]`,
+                          `- Última atualização do briefing: ${matchBriefing.updatedAt ? new Date(matchBriefing.updatedAt).toLocaleString('pt-BR') : 'N/A'}`,
+                          `- Etapa 9 (Publicação/Webhook): ${webhookStep?.isCompleted ? 'Concluída' : 'Pendente'} — ${webhookStep?.content || 'sem log detalhado'}`,
+                          `- SEO gerado (novoTitulo): ${seo.novoTitulo || '(não gerado)'}`,
+                          `- SEO gerado (metaDescription): ${seo.metaDescription || '(não gerado)'}`,
+                          `- SEO gerado (tags): ${seo.tags || '(não gerado)'}`,
+                          `- SEO gerado (marca): ${seo.marca || '(não gerado)'}`,
+                          `- SEO gerado (novaDescricaoHtml): ${seo.novaDescricaoHtml ? `${String(seo.novaDescricaoHtml).length} caracteres` : '(não gerado)'}`,
+                        ].join('\n');
+                      } else {
+                        briefingAudit = `\n[ESTEIRA INTERNA]: Nenhum briefing encontrado no histórico local para o SKU "${skuToCheck}".`;
+                      }
+                    } catch {
+                      // Mantém resultado da Nuvemshop intacto
+                    }
+                  }
+
+                  result = `${liveData}${briefingAudit}`;
+                } catch (e: any) {
+                  result = `[ERRO]: Falha ao buscar produtos reais na Nuvemshop (${e?.message || 'erro desconhecido'}).`;
+                }
+              }
             } else if (call.name === 'avaliarImagem') {
-               result = '[SISTEMA]: Cloud Vision / AI analisou a imagem. Nota de Relevância: 9/10. Nota de SEO (Alt-tags): 7/10. Otimização necessária: adicionar descrição de contexto visual.';
+              if (!hasVisionApi) {
+                result = `[SISTEMA]: Acesso Negado. O agente "${rhAgentId}" não possui a permissão "Cloud Vision API" habilitada no painel de Recursos Humanos (RH).`;
+              } else {
+                const imgUrl = String((call.args as any)?.url || '');
+                result = `[SISTEMA]: Permissão Cloud Vision API validada para "${rhAgentId}". Solicitação registrada para análise visual da imagem (${imgUrl || 'URL não informada'}). Observação: a auditoria visual real completa de rótulos roda na Etapa 0 da esteira do Diretor de Arte.`;
+              }
             } else if (call.name === 'gerarRelatorioPDF') {
-               result = '[SISTEMA]: Sucesso. Relatório PDF gerado e salvo em: https://123mart.com/admin/arquivos/relatorio_imagens_001.pdf';
+              result = resolvedSku
+                ? `[SISTEMA]: Relatório consolidado. Os PDFs oficiais da esteira para o SKU ${resolvedSku} estão disponíveis na aba CEO → Briefing de SKUs (/api/marketing/pdf/briefing/${resolvedSku}).`
+                : '[SISTEMA]: Conteúdo do relatório estruturado com sucesso. Apresente o resumo diretamente ao usuário no chat.';
             }
-            
+
             toolResults.push({
               functionResponse: {
                 name: call.name,
@@ -1344,13 +1695,21 @@ Exemplo: [ENCAMINHAR_PARA: pesquisador] Olá pesquisador, realize a pesquisa e l
               }
             });
           }
-          
+
           // Adiciona as respostas das ferramentas ao histórico para o modelo ler
           contents.push({ role: 'user', parts: toolResults });
         } else {
           aiText = response.text || 'Entendido. Estou trabalhando nisso.';
           shouldContinue = false;
         }
+      }
+
+      if (!aiText) {
+        const finalResp = await client.models.generateContent({
+          model: 'gemini-4-hydrogen',
+          contents,
+        });
+        aiText = finalResp.text || 'Consulta concluída. Verifique os detalhes na aba Briefing de SKUs.';
       }
       
       // Verifica se o agente solicitou um encaminhamento
@@ -1384,8 +1743,9 @@ Exemplo: [ENCAMINHAR_PARA: pesquisador] Olá pesquisador, realize a pesquisa e l
   },
 
   async generateText(prompt: string) {
-    const res = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+    const client = getAiClient();
+    const res = await client.models.generateContent({
+      model: 'gemini-4-hydrogen',
       contents: [{ role: 'user', parts: [{ text: prompt }] }]
     });
     return res.text;

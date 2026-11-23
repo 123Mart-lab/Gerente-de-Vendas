@@ -18,6 +18,20 @@ import {
   type ArtRenderMode,
   type ArtSlotPlan
 } from './src/prompts/artDirector.js';
+import { formatManagerBriefingMarkdown } from './src/prompts/manager.js';
+
+interface OrchestrationJobState {
+  sku: string;
+  startedAt: number;
+  finishedAt?: number;
+  currentStep: string;
+  completedSteps: string[];
+  status: 'running' | 'completed' | 'error';
+  error?: string;
+  promise: Promise<void>;
+}
+
+const orchestrationJobs = new Map<string, OrchestrationJobState>();
 
 const app = express();
 const PORT = 3000;
@@ -121,9 +135,9 @@ app.get('/api/settings', async (req, res) => {
 
 app.post('/api/settings', async (req, res) => {
   try {
-    console.log('Novas configurações recebidas, salvando no Firebase...');
-    await firebaseService.saveSettings(req.body);
-    res.json({ success: true });
+    console.log('Novas configurações recebidas, salvando permissões e regras...');
+    const saved = await firebaseService.saveSettings(req.body);
+    res.json({ success: true, settings: saved });
   } catch (error) {
     console.error('Erro ao salvar configurações:', error);
     res.status(500).json({ error: 'Failed to save settings' });
@@ -362,13 +376,16 @@ app.post('/api/marketing/sku-briefings', async (req, res) => {
 });
 
 // ==========================================
-// ROTA DE WEBHOOK DO ESPECIALISTA EM SEO (NUVEMSHOP)
+// ROTA DE WEBHOOK DO ESPECIALISTA EM SEO (NUVEMSHOP) — 100% DINÂMICO POR SKU
 // ==========================================
 app.post('/api/marketing/webhook-seo-publish', async (req, res) => {
   try {
     const { sku, productId } = req.body;
-    const targetSku = sku || '123Mart09168';
-    
+    const targetSku = String(sku || '').trim();
+    if (!targetSku) {
+      return res.status(400).json({ error: 'SKU é obrigatório para publicação via Webhook SEO.' });
+    }
+
     // 1. Hashtags exigidas pelo CEO
     const hashtags = {
       tituloSeo: '#título-de-seo',
@@ -376,49 +393,149 @@ app.post('/api/marketing/webhook-seo-publish', async (req, res) => {
       descricaoProduto: '#descrição-do-produto'
     };
 
-    // 2. Fotos geradas pelo Diretor de Arte
-    const photos = [
-      { slot: 1, title: 'Capa Oficial Fundo Branco 100% Puro (#FFFFFF)', url: '/assets/slots_09168/slot_1.jpg', size: '44.2 KB' },
-      { slot: 2, title: 'Ambiente Real: Frutas & Vegetais na Cozinha', url: '/assets/slots_09168/slot_2.jpg', size: '87.4 KB' },
-      { slot: 3, title: 'Maternidade Segura: Mamadeiras & Utensílios de Bebê', url: '/assets/slots_09168/slot_3.jpg', size: '82.6 KB' },
-      { slot: 4, title: 'Rendimento Máximo: 1 Frasco Rende até 58 Litros', url: '/assets/slots_09168/slot_4.jpg', size: '88.9 KB' },
-      { slot: 5, title: 'Eficácia Comprovada em Laboratório (E. coli)', url: '/assets/slots_09168/slot_5.jpg', size: '87.6 KB' },
-      { slot: 6, title: 'Diluição Simples: 6ml por Litro de Água', url: '/assets/slots_09168/slot_6.jpg', size: '86.1 KB' },
-      { slot: 7, title: 'Preservação do Frescor e Crocância Natural', url: '/assets/slots_09168/slot_7.jpg', size: '86.4 KB' },
-      { slot: 8, title: 'Fórmula Biodegradável & Sustentável Start Química', url: '/assets/slots_09168/slot_8.jpg', size: '85.2 KB' }
-    ];
+    // 2. Carrega briefing real do SKU + produto real na Nuvemshop
+    const allBriefings: any = await firebaseService.getSkuBriefings();
+    const list: any[] = Array.isArray(allBriefings)
+      ? allBriefings
+      : allBriefings && typeof allBriefings === 'object'
+        ? Object.values(allBriefings)
+        : [];
+    const briefing: any = list.find(
+      (b: any) => String(b?.sku || '').toLowerCase() === targetSku.toLowerCase()
+    ) || null;
 
-    // 3. Atualização no catálogo da Nuvemshop
+    let nuvemProduct: any = null;
+    try {
+      const nuvemRes = await axios.get(`http://localhost:${PORT}/api/marketing/nuvemshop/product/${encodeURIComponent(targetSku)}`);
+      nuvemProduct = nuvemRes.data || null;
+    } catch (e: any) {
+      console.warn(`[Webhook SEO Publish] Não foi possível consultar produto ${targetSku} na Nuvemshop:`, e?.message);
+    }
+
+    const creds = await getNuvemshopCreds();
+    const resolvedStoreId = creds?.storeId || process.env.NUVEMSHOP_STORE_ID || 'N/A';
+    const resolvedProductId = String(productId || nuvemProduct?.id || 'N/A');
+    const resolvedProductName =
+      briefing?.seoData?.novoTitulo ||
+      nuvemProduct?.name ||
+      `Produto ${targetSku}`;
+
+    // 3. Monta a galeria real dos 8 slots (prioriza generatedSlots criados pelo Diretor de Arte; fallback para imagens da Nuvemshop)
+    const generatedSlotsObj = briefing?.generatedSlots || {};
+    const planSlots: any[] = Array.isArray(briefing?.artPlan?.slots) ? briefing.artPlan.slots : [];
+    const photos: Array<{ slot: number; title: string; url: string; size?: string }> = [];
+
+    for (let slot = 1; slot <= 8; slot++) {
+      const gen = generatedSlotsObj[String(slot)] || generatedSlotsObj[slot];
+      const planSlot = planSlots.find((s: any) => Number(s.slotNumber) === slot);
+      const nuvemImg = Array.isArray(nuvemProduct?.images) ? nuvemProduct.images[slot - 1] : null;
+      const url = gen?.imageUrl || gen?.webpUrl || nuvemImg?.src || '';
+      if (url) {
+        photos.push({
+          slot,
+          title: planSlot?.title || (slot === 1 ? 'Capa Oficial Fundo Branco Puro (#FFFFFF)' : `Slot ${slot} — Galeria Comercial`),
+          url,
+          size: gen?.fileSizeKb ? `${gen.fileSizeKb} KB` : undefined
+        });
+      }
+    }
+
+    // 4. Salva de fato os dados de SEO na Nuvemshop (incluindo publicação manual após Trava Comercial)
+    let nuvemshopUpdated = false;
+    let nuvemshopError: string | null = null;
+    if (briefing?.seoData && Object.keys(briefing.seoData).length > 0) {
+      try {
+        await updateNuvemshopProduct(targetSku, briefing.seoData);
+        nuvemshopUpdated = true;
+      } catch (saveErr: any) {
+        nuvemshopError = saveErr?.message || 'Erro ao atualizar produto na Nuvemshop';
+        console.error(`[Webhook SEO Publish] Falha ao atualizar Nuvemshop para ${targetSku}:`, nuvemshopError);
+      }
+    }
+
+    // 5. Dispara Webhook para o MeliAgent
+    let meliWebhookSent = false;
+    try {
+      await fetch('https://ais-pre-aj3lqhgqeg6eru2q43vpyh-376013781567.us-west2.run.app/api/webhook/briefing-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sku: targetSku,
+          secret: 'meli-agent-secret-2026'
+        })
+      });
+      meliWebhookSent = true;
+    } catch (meliErr: any) {
+      console.warn(`[Webhook SEO Publish] Aviso no webhook MeliAgent para ${targetSku}:`, meliErr?.message);
+    }
+
+    // 6. Atualiza status no briefing (libera trava comercial com override manual e conclui Etapa 9)
+    if (briefing) {
+      const updatedSteps = Array.isArray(briefing.steps) ? [...briefing.steps] : JSON.parse(JSON.stringify(defaultStepsTemplate));
+      if (updatedSteps[8]) {
+        updatedSteps[8] = {
+          ...updatedSteps[8],
+          isCompleted: true,
+          content: nuvemshopUpdated
+            ? `Publicação confirmada na Nuvemshop (${photos.length} foto(s) mapeada(s)) e Webhook MeliAgent disparado.`
+            : `Webhook SEO processado (${nuvemshopError ? `aviso Nuvemshop: ${nuvemshopError}` : 'sem seoData pendente'}).`
+        };
+      }
+      const nextCommercialAlert = briefing.commercialAlert
+        ? { ...briefing.commercialAlert, blockedAutoSave: false, manualOverrideApproved: true }
+        : undefined;
+
+      await firebaseService.saveSkuBriefing(targetSku, {
+        ...briefing,
+        sku: targetSku,
+        steps: updatedSteps,
+        ...(nextCommercialAlert ? { commercialAlert: nextCommercialAlert } : {}),
+        lastPublishedAt: Date.now()
+      }).catch((e) => console.error('Falha ao atualizar briefing após webhook SEO:', e));
+    }
+
+    // 7. Registra auditoria real no histórico de tarefas
     const dateStr = new Date().toLocaleDateString('pt-BR') + ' ' + new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     globalAuditTasks.unshift({
       id: `task-webhook-seo-${Date.now()}`,
       date: dateStr,
-      productName: `[${targetSku}] Germicida Desinfetante Qualifood 350ml`,
-      receivedPrompt: `Webhook disparado pelo Gerente de Projetos: Pasta do SKU ${targetSku} pronta. Especialista em SEO acionado para aplicar as hashtags (#título-de-seo, #descrição-de-seo, #descrição-do-produto), preencher todos os campos do anúncio e salvar as 8 fotos criadas pelo Diretor de Arte.`,
+      productName: `[${targetSku}] ${resolvedProductName}`,
+      receivedPrompt: `Webhook disparado pelo Gerente de Projetos para o SKU ${targetSku}: aplicar hashtags (#título-de-seo, #descrição-de-seo, #descrição-do-produto), atualizar Nuvemshop e sincronizar ${photos.length} foto(s).`,
       sentResponse: JSON.stringify({
-        status: 'published_via_webhook',
+        status: nuvemshopUpdated ? 'published_via_webhook' : 'webhook_dispatched_with_warning',
         sku: targetSku,
-        storeId: '4383282',
-        productId: productId || '368839553',
+        storeId: resolvedStoreId,
+        productId: resolvedProductId,
+        nuvemshopUpdated,
+        nuvemshopError,
+        meliWebhookSent,
         hashtags,
-        photosSaved: photos.length,
-        message: 'Especialista em SEO concluiu o salvamento na Nuvemshop: campos preenchidos e 8 fotos sincronizadas com sucesso.'
+        photosMapped: photos.length,
+        message: nuvemshopUpdated
+          ? `Especialista em SEO salvou os campos otimizados na Nuvemshop para ${targetSku} (${photos.length} foto(s) na galeria).`
+          : `Webhook disparado para ${targetSku}${nuvemshopError ? ` (Aviso Nuvemshop: ${nuvemshopError})` : ''}.`
       }),
       status: 'completed',
       role: 'seo',
       requestingSector: 'Gerente de Projetos (Webhook)',
       executingSector: 'Especialista em SEO (Nuvemshop)',
-      oldScore: 35,
-      newScore: 100,
-      evolutionPercentage: 65
+      oldScore: Number(briefing?.seoData?.scoreTituloOriginal) || 35,
+      newScore: Number(briefing?.seoData?.scoreTituloNovo) || 98,
+      evolutionPercentage: Math.max(0, (Number(briefing?.seoData?.scoreTituloNovo) || 98) - (Number(briefing?.seoData?.scoreTituloOriginal) || 35))
     });
 
     res.json({
       success: true,
       sku: targetSku,
-      storeId: '4383282',
-      productId: productId || '368839553',
-      message: 'Webhook recebido pelo Especialista em SEO. Todos os campos e as 8 fotos foram salvos e sincronizados na Nuvemshop!',
+      storeId: resolvedStoreId,
+      productId: resolvedProductId,
+      productName: resolvedProductName,
+      nuvemshopUpdated,
+      nuvemshopError,
+      meliWebhookSent,
+      message: nuvemshopUpdated
+        ? `SEO de ${targetSku} salvo na Nuvemshop e webhook sincronizado com sucesso!`
+        : `Webhook processado para ${targetSku}${nuvemshopError ? ` (Aviso ao salvar na Nuvemshop: ${nuvemshopError})` : ''}.`,
       hashtags,
       photos
     });
@@ -739,8 +856,8 @@ app.get('/api/marketing/nuvemshop/product/:idOrSku', async (req, res) => {
       },
       barcode: v.barcode || '',
       brand: productData.brand || '',
-      seo_title: productData.seo_title || '',
-      seo_description: productData.seo_description || '',
+      seo_title: productData.seo_title?.pt ?? (typeof productData.seo_title === 'string' ? productData.seo_title : ''),
+      seo_description: productData.seo_description?.pt ?? (typeof productData.seo_description === 'string' ? productData.seo_description : ''),
       images: (productData.images || [])
         .filter((img: any) => !img.src.includes('image_74c58744'))
         .map((img: any) => ({
@@ -1366,13 +1483,60 @@ app.post('/api/marketing/nuvemshop/save-slot-image', async (req, res) => {
 // ==========================================
 app.post('/api/marketing/art/plan', async (req, res) => {
   try {
-    const { sku, forceRefreshManager } = req.body;
+    const { sku, forceRefreshManager, forceRefresh } = req.body;
     const resolvedSku = (sku || '').trim();
     if (!resolvedSku) {
       return res.status(400).json({ error: 'SKU é obrigatório para gerar o Plano Visual do Diretor de Arte.' });
     }
 
-    // 1. Busca dados reais da Nuvemshop (todas as fotos + descrição + marca)
+    const skuKey = resolvedSku.toLowerCase();
+    const shouldForce = Boolean(forceRefresh || forceRefreshManager);
+
+    // 0. Lock Anti-Duplicação: se a esteira de otimização estiver rodando agora para este SKU, aguarda ela concluir
+    // em vez de disparar uma 2ª geração redundante do Plano Visual e resetar artApprovals!
+    const activeJob = orchestrationJobs.get(skuKey);
+    if (activeJob && activeJob.status === 'running' && !shouldForce) {
+      console.log(`[🔒 Art Plan Lock] Aguardando esteira ativa de ${resolvedSku} concluir antes de retornar artPlan...`);
+      try {
+        await activeJob.promise;
+      } catch {}
+      const refreshedBriefings = await firebaseService.getSkuBriefings();
+      const refreshed = Array.isArray(refreshedBriefings)
+        ? (refreshedBriefings.find((b: any) => String(b.sku || '').toLowerCase() === skuKey) as any)
+        : null;
+      if (refreshed?.artPlan) {
+        return res.json({
+          success: true,
+          sku: resolvedSku,
+          reusedExisting: true,
+          managerBriefing: refreshed.managerBriefing || null,
+          artPlan: refreshed.artPlan,
+          markdown: refreshed.art || '',
+        });
+      }
+    }
+
+    // 1. Carrega briefing existente para aproveitar a inteligência do Pesquisador, Monitor e Gerente
+    const allBriefings = await firebaseService.getSkuBriefings();
+    const existing = Array.isArray(allBriefings)
+      ? (allBriefings.find((b: any) => String(b.sku || '').toLowerCase() === skuKey) as any)
+      : null;
+
+    // Se já existe artPlan recente (< 90s) e o usuário NÃO clicou explicitamente em Recriar (forceRefresh), reutiliza!
+    const lastPlanTime = Number(existing?.artPlanGeneratedAt || existing?.finishedAt || 0);
+    if (existing?.artPlan && !shouldForce && lastPlanTime > 0 && Date.now() - lastPlanTime < 90_000) {
+      console.log(`[♻️ Art Plan Cache] Reutilizando Plano Visual recém-gerado para ${resolvedSku} (${Math.round((Date.now() - lastPlanTime) / 1000)}s atrás).`);
+      return res.json({
+        success: true,
+        sku: resolvedSku,
+        reusedExisting: true,
+        managerBriefing: existing.managerBriefing || null,
+        artPlan: existing.artPlan,
+        markdown: existing.art || '',
+      });
+    }
+
+    // 2. Busca dados reais da Nuvemshop (todas as fotos + descrição + marca)
     let productData: any = null;
     try {
       const nuvemRes = await axios.get(`http://localhost:${PORT}/api/marketing/nuvemshop/product/${encodeURIComponent(resolvedSku)}`);
@@ -1392,21 +1556,16 @@ app.post('/api/marketing/art/plan', async (req, res) => {
       };
     }
 
-    // 2. Carrega briefing existente para aproveitar a inteligência do Pesquisador, Monitor e Gerente
-    const allBriefings = await firebaseService.getSkuBriefings();
-    const existing = Array.isArray(allBriefings)
-      ? (allBriefings.find((b: any) => String(b.sku || '').toLowerCase() === resolvedSku.toLowerCase()) as any)
-      : null;
-
     let managerBriefing = existing?.managerBriefing || null;
     let managerMarkdown = existing?.manager || '';
 
     // 3. Padrão Agência: se o Gerente ainda não produziu o Briefing Mestre Estratégico, gera agora antes do Diretor de Arte
     if (!managerBriefing || forceRefreshManager) {
+      const visualAudit = existing?.visualAudit || (await aiService.inspectProductPackaging(productData));
       const plannerSummary = (existing?.planner || '').slice(0, 1500);
       const monitorSummary = (existing?.monitor || '').slice(0, 1200);
-      const officialBrand = (productData.brand || existing?.officialBrand || 'Marca Oficial Homologada').trim();
-      const mgrOut = await aiService.generateManagerBriefing(productData, plannerSummary, monitorSummary, officialBrand);
+      const officialBrand = (visualAudit?.officialBrand || productData.brand || existing?.officialBrand || 'Marca Oficial Homologada').trim();
+      const mgrOut = await aiService.generateManagerBriefing(productData, plannerSummary, monitorSummary, officialBrand, visualAudit);
       managerBriefing = mgrOut.briefing;
       managerMarkdown = mgrOut.markdown;
     }
@@ -1418,6 +1577,11 @@ app.post('/api/marketing/art/plan', async (req, res) => {
       managerBriefing = aiService.sanitizeBriefingManufacturer(
         managerBriefing,
         artOut.plan.verifiedManufacturer
+      );
+      managerMarkdown = formatManagerBriefingMarkdown(
+        managerBriefing,
+        resolvedSku,
+        productData.name || `Produto ${resolvedSku}`
       );
     }
 
@@ -1433,6 +1597,7 @@ app.post('/api/marketing/art/plan', async (req, res) => {
       managerBriefing,
       art: artOut.markdown,
       artPlan: artOut.plan,
+      artPlanGeneratedAt: Date.now(),
       artApprovals: resetApprovals,
       artApproved: false,
     });
@@ -1517,7 +1682,16 @@ app.post('/api/marketing/ai/recreate-image', async (req, res) => {
         headline.trim()
       );
 
-    // 1. Carrega briefing persistido do SKU (para resgatar artPlan, managerBriefing e cena limpa em cache)
+    // 1. Se a esteira principal do SKU estiver rodando em background, aguarda sua conclusão para não gerar slots contra plano incompleto!
+    const runningOrch = orchestrationJobs.get(resolvedSku.toLowerCase());
+    if (runningOrch && runningOrch.status === 'running') {
+      console.log(`[🔒 Diretor de Arte] Aguardando esteira de ${resolvedSku} concluir antes de renderizar Slot ${resolvedSlotNum}...`);
+      try {
+        await runningOrch.promise;
+      } catch {}
+    }
+
+    // Carrega briefing persistido do SKU (para resgatar artPlan, managerBriefing e cena limpa em cache)
     let allBriefings = await firebaseService.getSkuBriefings();
     let existingBriefing = Array.isArray(allBriefings)
       ? (allBriefings.find((b: any) => String(b.sku || '').toLowerCase() === resolvedSku.toLowerCase()) as any)
@@ -2221,7 +2395,13 @@ const defaultStepsTemplate = [
   { id: '9', role: 'Gerente', actionTitle: 'Notificações', type: 'webhook', isCompleted: false, phase: 'Salvamento' },
 ];
 
-function applyPipelineStepUpdate(currentSteps: any[], sku: string, step: string, prompt: string) {
+function applyPipelineStepUpdate(
+  currentSteps: any[],
+  sku: string,
+  step: string,
+  prompt: string,
+  extraData?: Record<string, any>
+) {
   if (step === 'planner') {
     currentSteps[0].isCompleted = true; currentSteps[0].content = prompt;
     currentSteps[1].isCompleted = true; currentSteps[1].pdfUrl = `/api/marketing/pdf/planner/${sku}`;
@@ -2237,107 +2417,255 @@ function applyPipelineStepUpdate(currentSteps: any[], sku: string, step: string,
   } else if (step === 'seo') {
     currentSteps[7].isCompleted = true; currentSteps[7].content = prompt;
     currentSteps[7].pdfUrl = `/api/marketing/pdf/seo/${sku}`;
-    currentSteps[8].isCompleted = true; currentSteps[8].content = 'Anúncio salvo na Nuvemshop e Webhook MeliAgent disparado com sucesso.';
+    if (extraData?.commercialAlert?.blockedAutoSave) {
+      currentSteps[8].isCompleted = false;
+      currentSteps[8].content = `⚠️ Publicação automática PAUSADA por segurança comercial: ${extraData.commercialAlert.reason}`;
+    } else {
+      currentSteps[8].isCompleted = true;
+      currentSteps[8].content = 'Anúncio salvo na Nuvemshop e Webhook MeliAgent disparado com sucesso.';
+    }
   }
 }
 
+/**
+ * Orquestrador Unificado por SKU: garante enriquecimento Nuvemshop, lock anti-duplicação,
+ * rastreamento de status em tempo real e limpeza da tarefa pendente em globalAuditTasks.
+ */
+async function startOrchestrationForSku(
+  resolvedSku: string,
+  initialPayload: Record<string, any> = {},
+  requestingSector: string = 'Gerente de Projetos'
+): Promise<{ alreadyRunning: boolean; job: OrchestrationJobState }> {
+  const skuKey = resolvedSku.toLowerCase();
+  const existingJob = orchestrationJobs.get(skuKey);
+  if (existingJob && existingJob.status === 'running') {
+    console.log(`[🔒 Orquestrador] Esteira já está em execução para ${resolvedSku} (etapa atual: ${existingJob.currentStep}).`);
+    return { alreadyRunning: true, job: existingJob };
+  }
+
+  const payload: any = {
+    ...initialPayload,
+    sku: resolvedSku,
+    name: initialPayload.name || initialPayload.query || `Produto ${resolvedSku}`,
+  };
+
+  // Enriquecimento Mandatório: lê todos os dados, preço, marca e fotos reais da Nuvemshop
+  try {
+    const nuvemRes = await axios.get(`http://localhost:${PORT}/api/marketing/nuvemshop/product/${encodeURIComponent(resolvedSku)}`);
+    if (nuvemRes.data) {
+      Object.assign(payload, {
+        ...nuvemRes.data,
+        sku: resolvedSku,
+        name: nuvemRes.data.name || payload.name,
+        description: nuvemRes.data.description || payload.description,
+        brand: nuvemRes.data.brand || payload.brand,
+        price: nuvemRes.data.price ?? payload.price,
+        images: Array.isArray(nuvemRes.data.images) && nuvemRes.data.images.length > 0 ? nuvemRes.data.images : payload.images,
+      });
+    }
+  } catch (e: any) {
+    console.warn(`[Enriquecimento Nuvemshop] Não foi possível carregar dados extras para ${resolvedSku}:`, e?.message);
+  }
+
+  const dateStr = new Date().toLocaleString('pt-BR');
+  const pendingTaskId = `task-opt-${resolvedSku}-${Date.now()}`;
+
+  globalAuditTasks.push({
+    id: pendingTaskId,
+    date: dateStr,
+    productName: payload.name || `Produto ${resolvedSku}`,
+    receivedPrompt: `Iniciar otimização estrutural da esteira para ${resolvedSku}`,
+    sentResponse: 'Executando auditoria visual, pesquisa, briefing, direção de arte e SEO...',
+    status: 'pending',
+    role: 'system',
+    requestingSector,
+    executingSector: 'Orquestrador',
+    oldScore: 0,
+    newScore: 0,
+    evolutionPercentage: 0
+  });
+
+  const currentSteps = JSON.parse(JSON.stringify(defaultStepsTemplate));
+  const startedAt = Date.now();
+
+  await firebaseService.saveSkuBriefing(resolvedSku, {
+    sku: resolvedSku,
+    startedAt,
+    finishedAt: null,
+    commercialAlert: null,
+    errorWaitingForSku: false,
+    steps: currentSteps
+  }).catch((e) => console.error('Falha ao criar esqueleto do briefing: ', e));
+
+  const getRoleMetadata = (step: string) => {
+    const req = 'Gerente de Projetos';
+    let exe = 'Profissional';
+    if (step === 'visual_audit') exe = 'Auditor Visual (Rótulo Real)';
+    else if (step === 'planner') exe = 'Pesquisador de Mercado';
+    else if (step === 'monitor') exe = 'Monitor de Concorrência';
+    else if (step === 'manager') exe = 'Gerente de Projetos';
+    else if (step === 'art') exe = 'Diretor de Arte Multimodal';
+    else if (step === 'seo') exe = 'Especialista SEO';
+    return { req, exe, oldS: 0, newS: 100, ev: 100 };
+  };
+
+  const saveProductCallback = async (seoJson: any) => {
+    try {
+      console.log(`[Especialista SEO] Salvando automaticamente textos e SEO na Nuvemshop para SKU: ${resolvedSku}`);
+      await updateNuvemshopProduct(resolvedSku, seoJson);
+      console.log(`[✅ Especialista SEO] Textos, título, meta e descrição HTML salvos com sucesso na Nuvemshop!`);
+    } catch (saveErr: any) {
+      console.error(`[❌ Especialista SEO] Erro ao salvar na Nuvemshop:`, saveErr?.message || saveErr);
+    }
+
+    try {
+      console.log(`[🚀 MeliAgent] Disparando Webhook de Atualização para SKU: ${resolvedSku}`);
+      await fetch('https://ais-pre-aj3lqhgqeg6eru2q43vpyh-376013781567.us-west2.run.app/api/webhook/briefing-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sku: resolvedSku.toString(),
+          secret: 'meli-agent-secret-2026'
+        })
+      });
+      console.log(`[✅ MeliAgent] Webhook disparado com sucesso.`);
+    } catch (meliError: any) {
+      console.error(`[❌ MeliAgent] Falha ao disparar webhook:`, meliError?.message || meliError);
+    }
+  };
+
+  const jobState: OrchestrationJobState = {
+    sku: resolvedSku,
+    startedAt,
+    currentStep: 'visual_audit',
+    completedSteps: [],
+    status: 'running',
+    promise: Promise.resolve(),
+  };
+
+  const stepOrder = ['visual_audit', 'planner', 'monitor', 'manager', 'art', 'seo'];
+
+  jobState.promise = aiService
+    .runOrchestrationPipeline(
+      payload,
+      (step, prompt, response, extraData) => {
+        const meta = getRoleMetadata(step);
+        if (!jobState.completedSteps.includes(step)) {
+          jobState.completedSteps.push(step);
+        }
+        const nextIdx = stepOrder.indexOf(step) + 1;
+        jobState.currentStep = nextIdx > 0 && nextIdx < stepOrder.length ? stepOrder[nextIdx] : 'completed';
+
+        if (step !== 'visual_audit') {
+          globalAuditTasks.push({
+            id: `task-${step}-${Date.now()}`,
+            date: dateStr,
+            productName: payload.name,
+            receivedPrompt: prompt,
+            sentResponse: response,
+            status: 'completed',
+            role: step,
+            requestingSector: meta.req,
+            executingSector: meta.exe,
+            oldScore: meta.oldS,
+            newScore: meta.newS,
+            evolutionPercentage: meta.ev
+          });
+        }
+
+        applyPipelineStepUpdate(currentSteps, resolvedSku, step, prompt, extraData);
+
+        let artResetPatch: Record<string, any> = {};
+        if (step === 'art') {
+          const resetApprovals = { approvedSlots: [], keptPreviousSlots: [], allApproved: false };
+          artApprovals[resolvedSku] = resetApprovals;
+          artResetPatch = {
+            artPlanGeneratedAt: Date.now(),
+            artApprovals: resetApprovals,
+            artApproved: false,
+          };
+        }
+
+        const briefingPatch: Record<string, any> = {
+          sku: resolvedSku,
+          startedAt,
+          steps: currentSteps,
+          ...(step !== 'visual_audit' ? { [step]: response } : {}),
+          ...(extraData || {}),
+          ...artResetPatch
+        };
+
+        firebaseService
+          .saveSkuBriefing(resolvedSku, briefingPatch)
+          .catch((e) => console.error('Falha ao salvar progresso do briefing: ', e));
+      },
+      saveProductCallback
+    )
+    .then(() => {
+      jobState.status = 'completed';
+      jobState.currentStep = 'completed';
+      jobState.finishedAt = Date.now();
+      // Remove a tarefa temporária 'pending' para nunca ficar presa no histórico
+      const pIdx = globalAuditTasks.findIndex((t) => t.id === pendingTaskId);
+      if (pIdx > -1) globalAuditTasks.splice(pIdx, 1);
+    })
+    .catch((e: any) => {
+      console.error(`Background optimization failed for ${resolvedSku}:`, e);
+      jobState.status = 'error';
+      jobState.error = e?.message || 'Erro desconhecido na esteira';
+      jobState.finishedAt = Date.now();
+      const pIdx = globalAuditTasks.findIndex((t) => t.id === pendingTaskId);
+      if (pIdx > -1) {
+        globalAuditTasks[pIdx].status = 'completed';
+        globalAuditTasks[pIdx].sentResponse = `Falha na execução: ${jobState.error}`;
+      }
+    });
+
+  orchestrationJobs.set(skuKey, jobState);
+  return { alreadyRunning: false, job: jobState };
+}
+
+// Endpoint de status em tempo real da esteira de otimização por SKU
+app.get('/api/marketing/orchestration-status/:sku', async (req, res) => {
+  try {
+    const resolvedSku = String(req.params.sku || '').trim();
+    const skuKey = resolvedSku.toLowerCase();
+    const job = orchestrationJobs.get(skuKey);
+
+    const allBriefings: any = await firebaseService.getSkuBriefings();
+    const list: any[] = Array.isArray(allBriefings)
+      ? allBriefings
+      : allBriefings && typeof allBriefings === 'object'
+        ? Object.values(allBriefings)
+        : [];
+    const briefing: any = list.find((b: any) => String(b?.sku || '').toLowerCase() === skuKey) || null;
+
+    res.json({
+      sku: resolvedSku,
+      isRunning: job?.status === 'running',
+      status: job?.status || (briefing?.finishedAt ? 'completed' : 'idle'),
+      currentStep: job?.currentStep || (briefing?.finishedAt ? 'completed' : 'idle'),
+      completedSteps: job?.completedSteps || [],
+      startedAt: job?.startedAt || briefing?.startedAt || null,
+      finishedAt: job?.finishedAt || briefing?.finishedAt || null,
+      error: job?.error || null,
+      hasArtPlan: Boolean(briefing?.artPlan),
+      hasManagerBriefing: Boolean(briefing?.managerBriefing),
+      commercialAlert: briefing?.commercialAlert || null,
+      steps: briefing?.steps || []
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'Erro ao consultar status da esteira' });
+  }
+});
 
 app.post('/api/marketing/rename-sku', async (req, res) => {
   try {
     const { oldSku, newSku } = req.body;
     await firebaseService.renameSkuBriefing(oldSku, newSku);
-    
-    // Auto-restart orchestration now that SKU is valid
-    if (newSku.toLowerCase().startsWith('123mart')) {
-      // Just call the orchestrate logic internally by firing a request to itself or moving logic to a function.
-      // Since it's easier to fetch from itself (or just run the aiService):
-      
-      const payload = { sku: newSku, name: 'Produto Recuperado' };
-      const dateStr = new Date().toLocaleString('pt-BR');
-      const pendingTaskId = `task-opt-${Date.now()}`;
-      
-      globalAuditTasks.push({
-        id: pendingTaskId,
-        date: dateStr,
-        productName: payload.name,
-        receivedPrompt: `Iniciar otimização estrutural da esteira para ${newSku}`,
-        sentResponse: 'Inicializando módulos da esteira pós-correção de SKU...',
-        status: 'pending',
-        role: 'system',
-        requestingSector: 'Sistema',
-        executingSector: 'Orquestrador',
-        oldScore: 0,
-        newScore: 0,
-        evolutionPercentage: 0
-      });
-      
-      const currentSteps = JSON.parse(JSON.stringify(defaultStepsTemplate));
-      
-      firebaseService.saveSkuBriefing(newSku, { 
-        sku: newSku, 
-        startedAt: Date.now(), 
-        steps: currentSteps,
-        errorWaitingForSku: false
-      }).catch(e => console.error("Falha ao criar esqueleto pós-rename: ", e));
-      
-      const getRoleMetadata = (step: string) => {
-        let req = 'Gerente de Projetos';
-        let exe = 'Profissional';
-        if (step === 'planner') { exe = 'Pesquisador de Mercado'; }
-        else if (step === 'monitor') { exe = 'Monitor de Concorrência'; }
-        else if (step === 'manager') { exe = 'Gerente de Projetos'; }
-        else if (step === 'seo') { exe = 'Especialista SEO'; }
-        else if (step === 'art') { exe = 'Diretor de Arte'; }
-        return { req, exe, oldS: 0, newS: 100, ev: 100 };
-      };
-      
-      const saveProductCallback = async (seoJson: any) => {
-          try {
-            await fetch('https://ais-pre-aj3lqhgqeg6eru2q43vpyh-376013781567.us-west2.run.app/api/webhook/briefing-update', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                sku: newSku,
-                secret: "meli-agent-secret-2026"
-              })
-            });
-          } catch (meliError: any) {}
-      };
-      
-      aiService.runOrchestrationPipeline(payload, (step, prompt, response, extraData) => {
-        const meta = getRoleMetadata(step);
-        globalAuditTasks.push({
-          id: `task-${step}-${Date.now()}`,
-          date: dateStr,
-          productName: payload.name,
-          receivedPrompt: prompt,
-          sentResponse: response,
-          status: 'completed',
-          role: step,
-          requestingSector: meta.req,
-          executingSector: meta.exe,
-          oldScore: meta.oldS,
-          newScore: meta.newS,
-          evolutionPercentage: meta.ev
-        });
-        
-        applyPipelineStepUpdate(currentSteps, newSku, step, prompt);
-           
-        firebaseService.saveSkuBriefing(newSku, { 
-            sku: newSku, 
-            startedAt: Date.now(), 
-            steps: currentSteps,
-            [step]: response,
-            ...(extraData || {})
-        }).catch(e => console.error("Falha ao salvar progresso do briefing: ", e));
-        
-      }, saveProductCallback).catch(e => {
-          const pIdx = globalAuditTasks.findIndex((t) => t.id === pendingTaskId);
-          if (pIdx > -1) {
-              globalAuditTasks[pIdx].status = 'completed';
-              globalAuditTasks[pIdx].sentResponse = `Falha na execução: ${e.message}`;
-          }
-      });
+
+    if (newSku && newSku.toLowerCase().startsWith('123mart')) {
+      await startOrchestrationForSku(newSku, { name: 'Produto Recuperado' }, 'Sistema (Recuperação de SKU)');
     }
 
     res.json({ success: true });
@@ -2345,56 +2673,56 @@ app.post('/api/marketing/rename-sku', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 app.post('/api/marketing/orchestrate-optimization', async (req, res) => {
   try {
     const { productId, query } = req.body;
-    
+
     if (globalSeoFilters.enabled) {
       const isKit = (query || '').toLowerCase().includes('kit');
-      
+
       let blockedReason = null;
       if (globalSeoFilters.ignoreKits && isKit) {
         blockedReason = 'Variação de kit ignorada';
       }
-      
+
       if (blockedReason) {
-         const dateStr = new Date().toLocaleString('pt-BR');
-         const responseMsg = `Neste momento, os filtros aplicados me impedem de fazer alteração no anúncio (Motivo: ${blockedReason}).`;
-         
-         globalAuditTasks.push({
-           id: `task-seo-${Date.now()}`,
-           date: dateStr,
-           productName: query || productId || 'Produto',
-           receivedPrompt: 'Otimize este anúncio de acordo com as diretrizes.',
-           sentResponse: responseMsg,
-           status: 'completed',
-           role: 'seo',
-           requestingSector: 'Gerente de Projetos',
-           executingSector: 'Especialista SEO',
-           oldScore: 0,
-           newScore: 0,
-           evolutionPercentage: 0
-         });
-         
-         return res.json({ 
-           success: true, 
-           response: responseMsg,
-           blocked: true,
-           reason: blockedReason
-         });
+        const dateStr = new Date().toLocaleString('pt-BR');
+        const responseMsg = `Neste momento, os filtros aplicados me impedem de fazer alteração no anúncio (Motivo: ${blockedReason}).`;
+
+        globalAuditTasks.push({
+          id: `task-seo-${Date.now()}`,
+          date: dateStr,
+          productName: query || productId || 'Produto',
+          receivedPrompt: 'Otimize este anúncio de acordo com as diretrizes.',
+          sentResponse: responseMsg,
+          status: 'completed',
+          role: 'seo',
+          requestingSector: 'Gerente de Projetos',
+          executingSector: 'Especialista SEO',
+          oldScore: 0,
+          newScore: 0,
+          evolutionPercentage: 0
+        });
+
+        return res.json({
+          success: true,
+          response: responseMsg,
+          blocked: true,
+          reason: blockedReason
+        });
       }
     }
 
-    const payload = { ...req.body, sku: req.body.sku || req.body.id || req.body.productId, name: req.body.query || req.body.name };
-    const resolvedSku = payload.sku;
+    const resolvedSku = String(req.body.sku || req.body.id || req.body.productId || '').trim();
     if (!resolvedSku) {
-       return res.status(400).json({ error: 'SKU não fornecido na requisição de otimização.' });
+      return res.status(400).json({ error: 'SKU não fornecido na requisição de otimização.' });
     }
     if (!resolvedSku.toLowerCase().startsWith('123mart')) {
       const errorSteps = JSON.parse(JSON.stringify(defaultStepsTemplate));
       errorSteps[0].isCompleted = true;
       errorSteps[0].content = `ERRO: O SKU "${resolvedSku}" é inválido. Nosso sistema só processa SKUs iniciados por "123Mart". Por favor, edite o SKU desta pasta na aba de Briefings para continuar.`;
-      
+
       firebaseService.saveSkuBriefing(resolvedSku, {
         sku: resolvedSku,
         startedAt: Date.now(),
@@ -2404,124 +2732,16 @@ app.post('/api/marketing/orchestrate-optimization', async (req, res) => {
       return res.json({ success: true, blocked: true, reason: 'SKU Inválido (não inicia com 123Mart)' });
     }
 
-    // Enriquecimento Mandatório: Lê todos os dados e descrição real da Nuvemshop
-    try {
-      const { default: axios } = await import('axios');
-      const nuvemRes = await axios.get(`http://localhost:3000/api/marketing/nuvemshop/product/${resolvedSku}`);
-      if (nuvemRes.data) {
-        Object.assign(payload, {
-          ...nuvemRes.data,
-          name: nuvemRes.data.name || payload.name,
-          description: nuvemRes.data.description || payload.description,
-          brand: nuvemRes.data.brand || payload.brand,
-          price: nuvemRes.data.price || payload.price,
-          images: nuvemRes.data.images || payload.images
-        });
-      }
-    } catch (e) {
-      console.warn('[Enriquecimento Nuvemshop] Não foi possível carregar dados extras para', resolvedSku);
-    }
-    
-    const dateStr = new Date().toLocaleString('pt-BR');
-    const pendingTaskId = `task-opt-${Date.now()}`;
-    
-    globalAuditTasks.push({
-      id: pendingTaskId,
-      date: dateStr,
-      productName: payload.name || 'Produto Desconhecido',
-      receivedPrompt: `Iniciar otimização estrutural da esteira para ${resolvedSku}`,
-      sentResponse: 'Inicializando módulos da esteira...',
-      status: 'pending',
-      role: 'system',
-      requestingSector: 'Sistema',
-      executingSector: 'Orquestrador',
-      oldScore: 0,
-      newScore: 0,
-      evolutionPercentage: 0
+    const { alreadyRunning, job } = await startOrchestrationForSku(resolvedSku, req.body, 'Gerente de Projetos');
+
+    res.json({
+      success: true,
+      sku: resolvedSku,
+      alreadyRunning,
+      status: job.status,
+      currentStep: job.currentStep,
+      result: []
     });
-
-    const currentSteps = JSON.parse(JSON.stringify(defaultStepsTemplate));
-
-    // Salva a estrutura inicial vazia imediatamente para resetar a interface (sobreposição)
-    firebaseService.saveSkuBriefing(resolvedSku, { 
-      sku: resolvedSku, 
-      startedAt: Date.now(), 
-      steps: currentSteps 
-    }).catch(e => console.error("Falha ao criar esqueleto do briefing: ", e));
-
-    const getRoleMetadata = (step) => {
-      let req = 'Gerente de Projetos';
-      let exe = 'Profissional';
-      if (step === 'planner') { exe = 'Pesquisador de Mercado'; }
-      else if (step === 'monitor') { exe = 'Monitor de Concorrência'; }
-      else if (step === 'manager') { exe = 'Gerente de Projetos'; }
-      else if (step === 'seo') { exe = 'Especialista SEO'; }
-      else if (step === 'art') { exe = 'Diretor de Arte'; }
-      return { req, exe, oldS: 0, newS: 100, ev: 100 };
-    };
-
-    const saveProductCallback = async (seoJson) => {
-        try {
-          console.log(`[Especialista SEO] Salvando automaticamente textos e SEO na Nuvemshop para SKU: ${resolvedSku}`);
-          await updateNuvemshopProduct(resolvedSku, seoJson);
-          console.log(`[✅ Especialista SEO] Textos, título, meta e descrição HTML salvos com sucesso na Nuvemshop!`);
-        } catch (saveErr: any) {
-          console.error(`[❌ Especialista SEO] Erro ao salvar na Nuvemshop:`, saveErr?.message || saveErr);
-        }
-
-        try {
-          console.log(`[🚀 MeliAgent] Disparando Webhook de Atualização para SKU: ${resolvedSku}`);
-          await fetch('https://ais-pre-aj3lqhgqeg6eru2q43vpyh-376013781567.us-west2.run.app/api/webhook/briefing-update', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              sku: resolvedSku.toString(),
-              secret: "meli-agent-secret-2026"
-            })
-          });
-          console.log(`[✅ MeliAgent] Webhook disparado com sucesso.`);
-        } catch (meliError: any) {
-          console.error(`[❌ MeliAgent] Falha ao disparar webhook:`, meliError?.message || meliError);
-        }
-    };
-
-    const result = aiService.runOrchestrationPipeline(payload, (step, prompt, response, extraData) => {
-      const meta = getRoleMetadata(step);
-      globalAuditTasks.push({
-        id: `task-${step}-${Date.now()}`,
-        date: dateStr,
-        productName: payload.name,
-        receivedPrompt: prompt,
-        sentResponse: response,
-        status: 'completed',
-        role: step,
-        requestingSector: meta.req,
-        executingSector: meta.exe,
-        oldScore: meta.oldS,
-        newScore: meta.newS,
-        evolutionPercentage: meta.ev
-      });
-
-      applyPipelineStepUpdate(currentSteps, resolvedSku, step, prompt);
-      
-      firebaseService.saveSkuBriefing(resolvedSku, {
-        sku: resolvedSku,
-        startedAt: Date.now(),
-        steps: currentSteps,
-        [step]: response,
-        ...(extraData || {})
-      }).catch(e => console.error("Falha ao salvar progresso do briefing: ", e));
-
-    }, saveProductCallback).catch(e => {
-        console.error('Background optimization failed', e);
-        const pIdx = globalAuditTasks.findIndex((t) => t.id === pendingTaskId);
-        if (pIdx > -1) {
-            globalAuditTasks[pIdx].status = 'completed';
-            globalAuditTasks[pIdx].sentResponse = `Falha na execução: ${e.message}`;
-        }
-    });
-
-    res.json({ success: true, result: [] });
   } catch (err) {
     console.error('Erro na orquestração:', err);
     res.status(500).json({ error: 'Erro na orquestração' });
@@ -2531,11 +2751,18 @@ app.post('/api/marketing/orchestrate-optimization', async (req, res) => {
 app.post('/api/marketing/chat-gerente', async (req, res) => {
   try {
     const { GoogleGenAI } = await import('@google/genai');
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-    const { message, history, activeSku, activeProductName } = req.body;
-    
+    const ai = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+    });
+    const { message, history = [], activeSku, activeProductName } = req.body;
+    const cleanMessage = String(message || '').trim();
+    if (!cleanMessage) {
+      return res.status(400).json({ success: false, error: 'Mensagem vazia.' });
+    }
+
     // Tenta detectar SKU informado ou usa activeSku
-    const detectedSku = activeSku || message.match(/123mart[a-zA-Z0-9_-]+/i)?.[0];
+    const detectedSku = activeSku || cleanMessage.match(/123mart[a-zA-Z0-9_-]+/i)?.[0];
     const detectedName = activeProductName || (detectedSku ? `Produto ${detectedSku}` : null);
 
     const skuDirective = detectedSku ? `
@@ -2569,23 +2796,31 @@ ${skuDirective}
 }
 </EXECUTE>`;
 
+    // Mapeia corretamente o histórico enviado pelo frontend (role: 'agent'|'model'|'user' e text|content)
+    const sanitizedHistory = (Array.isArray(history) ? history : [])
+      .map((msg: any) => {
+        const text = String(msg?.text ?? msg?.content ?? '').trim();
+        if (!text) return null;
+        const role = msg?.role === 'agent' || msg?.role === 'model' ? 'model' : 'user';
+        return { role, parts: [{ text }] };
+      })
+      .filter(Boolean) as Array<{ role: string; parts: Array<{ text: string }> }>;
+
     try {
       const result = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
+        model: 'gemini-4-hydrogen',
         contents: [
-          { role: 'user', parts: [{ text: sysPrompt }] },
-          ...history.map((msg) => ({
-            role: msg.role,
-            parts: [{ text: msg.content }]
-          })),
-          { role: 'user', parts: [{ text: message }] }
+          ...sanitizedHistory,
+          { role: 'user', parts: [{ text: cleanMessage }] }
         ],
-        config: { temperature: 0.7 }
+        config: {
+          systemInstruction: sysPrompt,
+        }
       });
-      
-      let responseText = result.text || '';
-      let actionToRun = null;
-      let actionPayload = null;
+
+      const responseText = result.text || '';
+      let actionToRun: string | null = null;
+      let actionPayload: any = null;
       let cleanedResponse = responseText;
 
       const executeMatch = responseText.match(/<EXECUTE>\s*([\s\S]*?)\s*<\/EXECUTE>/);
@@ -2620,131 +2855,46 @@ ${skuDirective}
         });
       } else if (actionToRun === 'run_optimization') {
         const rawSku = actionPayload.product_id || actionPayload.sku;
-        const resolvedProductSku = (rawSku && rawSku !== 'undefined' && rawSku !== 'null') ? rawSku : detectedSku;
-        const productData = { 
-          name: actionPayload.product_name || detectedName || 'Produto', 
-          sku: resolvedProductSku 
-        };
-        if (!productData.sku || productData.sku === 'undefined') {
-           return res.json({ success: false, error: 'SKU não fornecido ou indefinido. Não é possível iniciar a esteira sem um SKU válido.' });
+        const resolvedProductSku = String((rawSku && rawSku !== 'undefined' && rawSku !== 'null') ? rawSku : detectedSku || '').trim();
+        if (!resolvedProductSku || resolvedProductSku === 'undefined') {
+          return res.json({ success: false, error: 'SKU não fornecido ou indefinido. Não é possível iniciar a esteira sem um SKU válido.' });
         }
-        if (!productData.sku.toLowerCase().startsWith('123mart')) {
-           // Em caso de SKU inválido, salva uma pasta de erro aguardando correção manual.
-           const errorSteps = JSON.parse(JSON.stringify(defaultStepsTemplate));
-           errorSteps[0].isCompleted = true;
-           errorSteps[0].content = `ERRO: O SKU "${productData.sku}" é inválido. Edite o SKU para iniciar por "123Mart".`;
-           
-           firebaseService.saveSkuBriefing(productData.sku, {
-             sku: productData.sku,
-             startedAt: Date.now(),
-             steps: errorSteps,
-             errorWaitingForSku: true
-           }).catch(e => console.error(e));
-           
-           return res.json({ success: true, response: `Atenção: O código "${productData.sku}" não é um SKU válido. Criei a pasta na aba Briefing de SKUs. Por favor, acesse lá e edite o nome da pasta para um SKU válido (iniciado em 123Mart) para que eu possa iniciar a orquestração.` });
-        }
-        
-        const dateStr = new Date().toLocaleString('pt-BR');
-        const pendingTaskId = `task-opt-${Date.now()}`;
-        
-        globalAuditTasks.push({
-          id: pendingTaskId,
-          date: dateStr,
-          productName: productData.name,
-          receivedPrompt: `Iniciar otimização estrutural da esteira para ${productData.sku}`,
-          sentResponse: 'Inicializando módulos da esteira em background...',
-          status: 'pending',
-          role: 'system',
-          requestingSector: 'Gerente de Projetos',
-          executingSector: 'Orquestrador',
-          oldScore: 0,
-          newScore: 0,
-          evolutionPercentage: 0
-        });
+        if (!resolvedProductSku.toLowerCase().startsWith('123mart')) {
+          const errorSteps = JSON.parse(JSON.stringify(defaultStepsTemplate));
+          errorSteps[0].isCompleted = true;
+          errorSteps[0].content = `ERRO: O SKU "${resolvedProductSku}" é inválido. Edite o SKU para iniciar por "123Mart".`;
 
-        const currentSteps = JSON.parse(JSON.stringify(defaultStepsTemplate));
-
-        // Salva a estrutura inicial vazia imediatamente para resetar a interface (sobreposição)
-        firebaseService.saveSkuBriefing(productData.sku, { 
-          sku: productData.sku, 
-          startedAt: Date.now(), 
-          steps: currentSteps 
-        }).catch(e => console.error("Falha ao criar esqueleto do briefing: ", e));
-
-        aiService.runOrchestrationPipeline(productData, (step, prompt, response, extraData) => {
-          let req = 'Gerente de Projetos';
-          let exe = 'Profissional';
-          if (step === 'planner') { exe = 'Pesquisador de Mercado'; }
-          else if (step === 'monitor') { exe = 'Monitor de Concorrência'; }
-          else if (step === 'manager') { exe = 'Gerente de Projetos'; }
-          else if (step === 'seo') { exe = 'Especialista SEO'; }
-          else if (step === 'art') { exe = 'Diretor de Arte'; }
-          
-          const pIdx = globalAuditTasks.findIndex((t) => t.id === pendingTaskId);
-          if (pIdx > -1) globalAuditTasks.splice(pIdx, 1);
-          globalAuditTasks.push({
-            id: `task-${step}-${Date.now()}`,
-            date: dateStr,
-            productName: productData.name,
-            receivedPrompt: prompt,
-            sentResponse: response,
-            status: 'completed',
-            role: step,
-            requestingSector: req,
-            executingSector: exe,
-            oldScore: 0,
-            newScore: 100,
-            evolutionPercentage: 100
-          });
-
-          applyPipelineStepUpdate(currentSteps, productData.sku, step, prompt);
-          
-          firebaseService.saveSkuBriefing(productData.sku, {
-            sku: productData.sku,
+          firebaseService.saveSkuBriefing(resolvedProductSku, {
+            sku: resolvedProductSku,
             startedAt: Date.now(),
-            steps: currentSteps,
-            [step]: response,
-            ...(extraData || {})
-          }).catch(e => console.error("Falha ao salvar progresso do briefing: ", e));
+            steps: errorSteps,
+            errorWaitingForSku: true
+          }).catch((e) => console.error(e));
 
-        }, async (seoJson) => {
-           try {
-             console.log(`[Especialista SEO] Salvando automaticamente textos e SEO na Nuvemshop para SKU: ${productData.sku}`);
-             await updateNuvemshopProduct(productData.sku, seoJson);
-             console.log(`[✅ Especialista SEO] Textos, título, meta e descrição HTML salvos com sucesso na Nuvemshop!`);
-           } catch (saveErr: any) {
-             console.error(`[❌ Especialista SEO] Erro ao salvar na Nuvemshop:`, saveErr?.message || saveErr);
-           }
+          return res.json({
+            success: true,
+            response: `Atenção: O código "${resolvedProductSku}" não é um SKU válido. Criei a pasta na aba Briefing de SKUs. Por favor, acesse lá e edite o nome da pasta para um SKU válido (iniciado em 123Mart) para que eu possa iniciar a orquestração.`
+          });
+        }
 
-           try {
-             console.log(`[🚀 MeliAgent] Disparando Webhook de Atualização para SKU: ${productData.sku}`);
-             await fetch('https://ais-pre-aj3lqhgqeg6eru2q43vpyh-376013781567.us-west2.run.app/api/webhook/briefing-update', {
-               method: 'POST',
-               headers: { 'Content-Type': 'application/json' },
-               body: JSON.stringify({
-                 sku: productData.sku.toString(),
-                 secret: "meli-agent-secret-2026"
-               })
-             });
-             console.log(`[✅ MeliAgent] Webhook disparado com sucesso.`);
-           } catch (err: any) {
-             console.error(`[❌ MeliAgent] Falha ao disparar webhook:`, err?.message || err);
-           }
-        }).catch((e) => {
-           console.error('Background optimization failed', e);
-           const pIdx = globalAuditTasks.findIndex((t) => t.id === pendingTaskId);
-           if (pIdx > -1) {
-             globalAuditTasks[pIdx].status = 'completed';
-             globalAuditTasks[pIdx].sentResponse = `Falha na execução: ${e.message}`;
-           }
-        });
+        const { alreadyRunning } = await startOrchestrationForSku(
+          resolvedProductSku,
+          { name: actionPayload.product_name || detectedName || `Produto ${resolvedProductSku}` },
+          'Gerente de Projetos (Chat Direto)'
+        );
+
+        if (!cleanedResponse) {
+          cleanedResponse = alreadyRunning
+            ? `A esteira de otimização do SKU ${resolvedProductSku} já está em execução no momento. Acompanhe o progresso em tempo real na aba Otimização ou Briefings.`
+            : `Esteira de otimização disparada para o SKU ${resolvedProductSku} com enriquecimento completo da Nuvemshop (Auditoria Visual → Planner → Monitor → Briefing Mestre → Diretor de Arte → Especialista SEO).`;
+        }
       }
 
-      return res.json({ success: true, response: cleanedResponse });
+      return res.json({ success: true, response: cleanedResponse, actionTriggered: actionToRun || null });
     } catch (apiError: any) {
       console.error('Erro na API do Gemini em chat-gerente:', apiError?.message || apiError);
-      return res.status(503).json({ 
-        success: false, 
+      return res.status(503).json({
+        success: false,
         error: 'Instabilidade temporária ou cota de requisições excedida. Por favor, tente novamente em alguns instantes.',
         response: 'Desculpe, estou enfrentando uma sobrecarga temporária no processamento de linguagem. Por favor, aguarde alguns instantes antes de enviar uma nova instrução.'
       });

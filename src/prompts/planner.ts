@@ -1,4 +1,30 @@
-export function buildPlannerPrompt(productData: any, realTrends: string): string {
+export interface ProductVisualAudit {
+  officialBrand?: string;
+  verifiedManufacturer?: string;
+  unitVolume?: string;
+  unitsShownInPhoto?: number;
+  labelClaims?: string[];
+  kitMismatchDetected?: boolean;
+  kitMismatchNote?: string;
+  photosInspected?: number;
+}
+
+export function buildPlannerPrompt(
+  productData: any,
+  realTrends: string,
+  visualAudit?: ProductVisualAudit | null
+): string {
+  const visualBlock = visualAudit
+    ? `\n🛡️ AUDITORIA VISUAL DO RÓTULO REAL (FONTE DE VERDADE ABSOLUTA — LIDA DIRETAMENTE NAS FOTOS DO PRODUTO):
+- Marca lida no rótulo: "${visualAudit.officialBrand || productData.brand || 'Não identificada'}"
+- Fabricante / Indústria lida no rótulo: "${visualAudit.verifiedManufacturer || 'Não visível na foto (NÃO CHUTE — escreva "Confirmar no rótulo da embalagem")'}"
+- Volume/Peso unitário impresso no rótulo: "${visualAudit.unitVolume || 'Não visível'}"
+- Quantidade de unidades visíveis na foto principal: ${visualAudit.unitsShownInPhoto ?? 'Não informada'}
+- Alegações reais impressas no rótulo: ${(visualAudit.labelClaims || []).join(' | ') || 'Nenhuma extraída'}
+${visualAudit.kitMismatchDetected ? `- ⚠️ ALERTA DE DIVERGÊNCIA KIT/PREÇO DETECTADO: ${visualAudit.kitMismatchNote || 'Título sugere kit/caixa, mas a foto mostra unidade individual — sinalize este risco no dossiê.'}` : ''}
+REGRA ABSOLUTA: JAMAIS substitua ou contradiga o Fabricante lido no rótulo acima por outro concorrente (ex: NUNCA chute "Genco", "HTH", "Hidroall", etc. se o rótulo real indicar outro fabricante ou não mostrar fabricante).\n`
+    : `\nREGRA ABSOLUTA: Se o fabricante industrial não estiver explicitamente escrito nos dados abaixo, NÃO CHUTE nenhum nome de concorrente — escreva exatamente "Confirmar no rótulo da embalagem".\n`;
+
   return `[ORDEM DE SERVIÇO - GERÊNCIA DE PROJETOS]
 Agente: Planner / Pesquisador de Mercado Sênior
 SKU de Referência: ${productData.sku}
@@ -8,11 +34,11 @@ Sua mente é estritamente analítica, determinística e orientada a dados. Você
 
 🚨 ATENÇÃO MANDATÓRIA SOBRE FORNECEDORES E MARCAS:
 A 123Mart é um e-commerce multimarcas que comercializa produtos de CENTENAS de indústrias e fabricantes distintos (ex: Start Química, Azulim, Tuff, Qualifood, Ypê, Kimberly-Clark, 3M, Tigre, Tramontina, Vonder, etc.). 
-Você DEVE minerar e identificar com rigor a MARCA COMERCIAL REAL e o FABRICANTE OFICIAL deste SKU específico a partir do nome, do código de barras/EAN, dos rótulos nas fotos e da inteligência de concorrência. É terminantemente proibido inventar marcas ou associar este produto a fabricantes de outros SKUs da loja.
-
+Você DEVE respeitar rigorosamente a MARCA COMERCIAL REAL e o FABRICANTE OFICIAL confirmados na auditoria visual do rótulo abaixo. É terminantemente proibido inventar marcas, chutar fabricantes concorrentes ou associar este produto a fabricantes de outros SKUs da loja.
+${visualBlock}
 DADOS DO PRODUTO (SKU: ${productData.sku}):
 Nome Base: "${productData.name}"
-Marca Cadastrada na Loja: "${productData.brand || 'Não informada (Identificar via pesquisa)'}"
+Marca Cadastrada na Loja: "${visualAudit?.officialBrand || productData.brand || 'Não informada (Identificar via pesquisa)'}"
 Preço Atual: ${productData.price}
 Descrição do Fornecedor: "${productData.description || 'N/A'}"
 Sinais de Tendência Capturados: ${realTrends}
@@ -22,7 +48,7 @@ Sua entrega será lida pela Diretoria (CEO), pelo Gerente de Projetos e por todo
 
 ### 1. Dossiê Oficial de Marca e Fabricante (Base Obrigatória para Arte e SEO)
 - **Marca Comercial Homologada:** [Nome exato da Marca deste produto]
-- **Fabricante / Razão Social Industrial:** [Indústria detentora da fórmula/fabricação deste SKU]
+- **Fabricante / Razão Social Industrial:** [Indústria confirmada na auditoria visual do rótulo ou "Confirmar no rótulo da embalagem"]
 - **Linha de Produto & Categoria:** [Ex: Tratamento de Piscinas, Limpeza Pesada, Cuidados com Bebê, etc.]
 
 ### 2. Termômetro de Mercado e Predição (Rally MCP + Vertex AI)

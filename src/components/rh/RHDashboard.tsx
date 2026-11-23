@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Shield, Wrench, Check, Search, Filter, Github, Save } from 'lucide-react';
+import { Users, Shield, Wrench, Check, Search, Filter, Github, Save, AlertCircle } from 'lucide-react';
 import { useSettings } from '../../contexts/SettingsContext';
 
 type Department = 'comercial' | 'publicidade' | 'financeiro' | 'fiscal' | 'juridico';
@@ -10,11 +10,13 @@ interface Agent {
   department: Department;
 }
 
+type ToolCapabilityTier = 'real_integration' | 'prompt_directive' | 'planned';
+
 interface APITool {
   id: string;
   name: string;
   description: string;
-  status: 'implemented' | 'partially_implemented' | 'planned';
+  status: ToolCapabilityTier;
 }
 
 const DEPARTMENTS: { id: Department; name: string; description: string }[] = [
@@ -48,38 +50,40 @@ const AGENTS: Agent[] = [
 ];
 
 const API_TOOLS: APITool[] = [
-  // Conhecimentos e Frameworks (GitHub / Open Source)
-  { id: 'github-rally-mcp', name: 'Rally MCP', description: 'Inteligência Viral e Automação Cross-Platform. Roteiros e análise de tendências.', status: 'implemented' },
-  { id: 'github-neuro-copywriting', name: 'NEURO-COPYWRITING', description: 'Psicologia de Conversão - O Motor de Vendas. Foco em traduzir características em benefícios.', status: 'implemented' },
-  { id: 'github-awesome-seo', name: 'AWESOME-SEO-TOOLS', description: 'Inteligência Tática de Código. Estruturação semântica de HTML e escaneabilidade visual.', status: 'implemented' },
-  { id: 'github-open-seo', name: 'OPEN-SEO', description: 'Infraestrutura e Mineração de Dados. Busca na SERP por dores da concorrência.', status: 'implemented' },
+  // Lojas Virtuais & E-commerce (Integração Real)
+  { id: 'nuvemshop-api', name: 'API Nuvemshop', description: 'Acesso ao vivo ao catálogo de produtos, SEO, tags, imagens e dados reais dos anúncios da Nuvemshop.', status: 'real_integration' },
 
-  // Repositórios de Terceiros (Sistemas)
-  { id: 'github-openwa', name: 'OpenWA / WaSender (WhatsApp API)', description: 'Repositório de automação de WhatsApp. Controla disparos em massa, webhooks e chatbots.', status: 'implemented' },
-  
-  // APIs Google
-  { id: 'search-console', name: 'Google Search Console API', description: 'Dados de pesquisa orgânica, cliques e palavras-chave.', status: 'implemented' },
-  { id: 'merchant-center', name: 'Content API for Shopping', description: 'Gestão de produtos e anúncios no Merchant Center.', status: 'implemented' },
-  { id: 'ga-data', name: 'Google Analytics Data API', description: 'Extração de relatórios e eventos do GA4.', status: 'implemented' },
-  { id: 'ga-admin', name: 'Google Analytics Admin API', description: 'Gestão de contas e propriedades do GA4.', status: 'implemented' },
-  { id: 'tag-manager', name: 'Tag Manager API', description: 'Gestão de tags, acionadores e variáveis.', status: 'implemented' },
-  { id: 'gmp-admin', name: 'Google Marketing Platform Admin API', description: 'Integração do ecossistema corporativo Google.', status: 'implemented' },
-  { id: 'nlp', name: 'Cloud Natural Language API', description: 'Inteligência de texto, análise de sentimento e avaliações.', status: 'implemented' },
-  { id: 'people-api', name: 'Google People API', description: 'Gestão de contatos e perfis de clientes sincronizados.', status: 'implemented' },
-  { id: 'contacts-api', name: 'Google Contacts API', description: 'Manipulação de listas e agendas telefônicas (complementar).', status: 'implemented' },
-  { id: 'speech-to-text', name: 'Cloud Speech-to-Text / TTS', description: 'Transcrição de áudios e geração de respostas em voz ultrarrealistas.', status: 'implemented' },
-  { id: 'vision-api', name: 'Cloud Vision API', description: 'Análise visual de produtos para Alt-tags e adequação ao Merchant Center.', status: 'implemented' },
-  { id: 'sheets-drive', name: 'Google Sheets & Drive', description: 'Exportação de relatórios, dados de leads e campanhas em tempo real.', status: 'implemented' },
-  { id: 'calendar-api', name: 'Google Calendar API', description: 'Consulta e agendamento de reuniões e retornos direto da conversa.', status: 'implemented' },
-  { id: 'translation-api', name: 'Cloud Translation API', description: 'Tradução neural em tempo real para escalar vendas internacionais.', status: 'implemented' },
-  { id: 'search-ads-360', name: 'Search Ads 360 Reporting API', description: 'Cruzamento de ROAS e performance de campanhas em larga escala.', status: 'implemented' },
-  { id: 'cloud-search', name: 'Cloud Search API', description: 'Mineração profunda nos documentos internos da empresa.', status: 'implemented' },
-  { id: 'vertex-ai', name: 'AI Platform (Vertex AI)', description: 'Motor de previsão e recomendação de produtos com base no histórico.', status: 'implemented' },
-  { id: 'postmaster-tools', name: 'Gmail Postmaster Tools', description: 'Monitoramento da reputação de domínio e entregabilidade de e-mails.', status: 'implemented' },
-  { id: 'places-api', name: 'Places API (New)', description: 'Acesso a rotas, validação de endereços e geolocalização logística.', status: 'implemented' },
-  
-  // Lojas Virtuais & E-commerce
-  { id: 'nuvemshop-api', name: 'API Nuvemshop', description: 'Acesso ao catálogo de produtos, imagens e dados dos anúncios da Nuvemshop.', status: 'implemented' },
+  // Repositórios de Terceiros & APIs com Bloqueio Técnico Real
+  { id: 'search-console', name: 'Google Search Console / Grounding', description: 'Habilita busca real na web (Google Search) na geração de SEO e pesquisa orgânica.', status: 'real_integration' },
+  { id: 'github-openwa', name: 'OpenWA / WaSender (WhatsApp API)', description: 'Controla disparo real de mensagens de WhatsApp nos workers de vendas e suporte.', status: 'real_integration' },
+  { id: 'contacts-api', name: 'Google Contacts API', description: 'Controla salvamento de contatos de leads na agenda nos workers comerciais.', status: 'real_integration' },
+  { id: 'people-api', name: 'Google People API', description: 'Controla sincronização de perfis de clientes nos workers comerciais.', status: 'real_integration' },
+
+  // Conhecimentos e Frameworks (Diretrizes de Prompt IA)
+  { id: 'github-rally-mcp', name: 'Rally MCP', description: 'Diretriz de inteligência viral e roteiros aplicada ao prompt de Pesquisa e Social Media.', status: 'prompt_directive' },
+  { id: 'github-neuro-copywriting', name: 'NEURO-COPYWRITING', description: 'Framework de psicologia de conversão aplicado ao prompt de SEO e Copy.', status: 'prompt_directive' },
+  { id: 'github-awesome-seo', name: 'AWESOME-SEO-TOOLS', description: 'Diretriz de estruturação semântica de HTML e escaneabilidade aplicada ao Especialista SEO.', status: 'prompt_directive' },
+  { id: 'github-open-seo', name: 'OPEN-SEO', description: 'Diretriz de mineração de dores de concorrentes e cauda longa aplicada ao Especialista SEO.', status: 'prompt_directive' },
+
+  // Diretrizes Comportamentais IA (Prompt)
+  { id: 'nlp', name: 'Cloud Natural Language (Diretriz IA)', description: 'Ativa análise de sentimento e tom persuasivo no prompt de Vendas, Pesquisa, SEO e Social Media.', status: 'prompt_directive' },
+  { id: 'vision-api', name: 'Cloud Vision (Alçada Visual)', description: 'Controla permissão de avaliação de imagem no chat e diretrizes de Alt-tags no SEO/Social.', status: 'prompt_directive' },
+  { id: 'cloud-search', name: 'Cloud Search (Diretriz IA)', description: 'Ativa diretriz de enriquecimento técnico no prompt de Pesquisa e SEO.', status: 'prompt_directive' },
+  { id: 'vertex-ai', name: 'AI Platform / Vertex AI (Diretriz IA)', description: 'Ativa diretriz de cross-sell preditivo e hooks de retenção no prompt de Vendas e Social.', status: 'prompt_directive' },
+  { id: 'postmaster-tools', name: 'Gmail Postmaster (Diretriz IA)', description: 'Ativa diretriz anti-spam para copys de e-mail marketing no Social Media.', status: 'prompt_directive' },
+  { id: 'speech-to-text', name: 'Cloud Speech-to-Text / TTS (Diretriz IA)', description: 'Ativa adaptação para scripts de áudio e voz no prompt de Vendedores.', status: 'prompt_directive' },
+  { id: 'translation-api', name: 'Cloud Translation (Diretriz IA)', description: 'Ativa instrução de negociação multilíngue no prompt de Vendedores.', status: 'prompt_directive' },
+  { id: 'calendar-api', name: 'Google Calendar (Diretriz IA)', description: 'Ativa proposta de agendamento de follow-ups no prompt de Vendedores.', status: 'prompt_directive' },
+  { id: 'places-api', name: 'Places API (Diretriz IA)', description: 'Ativa gatilhos de proximidade/CEP no prompt de Vendedores.', status: 'prompt_directive' },
+
+  // APIs Planejadas (Ainda sem conector ativo no backend)
+  { id: 'merchant-center', name: 'Content API for Shopping', description: 'Gestão de produtos e anúncios no Google Merchant Center (conector ainda não integrado).', status: 'planned' },
+  { id: 'ga-data', name: 'Google Analytics Data API', description: 'Extração de relatórios e eventos do GA4 (conector ainda não integrado).', status: 'planned' },
+  { id: 'ga-admin', name: 'Google Analytics Admin API', description: 'Gestão de contas e propriedades do GA4 (conector ainda não integrado).', status: 'planned' },
+  { id: 'tag-manager', name: 'Tag Manager API', description: 'Gestão de tags, acionadores e variáveis (conector ainda não integrado).', status: 'planned' },
+  { id: 'gmp-admin', name: 'Google Marketing Platform Admin API', description: 'Integração do ecossistema corporativo Google (conector ainda não integrado).', status: 'planned' },
+  { id: 'sheets-drive', name: 'Google Sheets & Drive', description: 'Exportação de relatórios e dados na nuvem (conector ainda não integrado).', status: 'planned' },
+  { id: 'search-ads-360', name: 'Search Ads 360 Reporting API', description: 'Cruzamento de ROAS e performance de campanhas (conector ainda não integrado).', status: 'planned' },
 ];
 
 const INITIAL_PERMISSIONS: Record<string, Record<string, boolean>> = {
@@ -157,7 +161,7 @@ export default function RHDashboard() {
   const [selectedAgent, setSelectedAgent] = useState<string | null>(AGENTS.find(a => a.department === 'comercial')?.id || null);
   const [searchTerm, setSearchTerm] = useState('');
   const [permissions, setPermissions] = useState<Record<string, Record<string, boolean>>>(rules.agentPermissions || INITIAL_PERMISSIONS);
-  const [isSaving, setIsSaving] = useState(false);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
   // Sync state if rules change
   useEffect(() => {
@@ -173,24 +177,29 @@ export default function RHDashboard() {
     setSelectedAgent(firstAgentInDept ? firstAgentInDept.id : null);
   };
 
-  const togglePermission = (agentId: string, toolId: string) => {
-    setPermissions(prev => {
-      const newPerms = {
-        ...prev,
-        [agentId]: {
-          ...(prev[agentId] || {}),
-          [toolId]: !(prev[agentId]?.[toolId] || false)
-        }
-      };
-      updateRule('agentPermissions', newPerms);
-      return newPerms;
-    });
+  const persistPermissions = async (nextPerms: Record<string, Record<string, boolean>>) => {
+    setSaveState('saving');
+    const ok = await saveRules({ ...rules, agentPermissions: nextPerms });
+    setSaveState(ok ? 'saved' : 'error');
+    setTimeout(() => setSaveState('idle'), 2000);
   };
 
-  const handleSave = () => {
-    setIsSaving(true);
-    saveRules();
-    setTimeout(() => setIsSaving(false), 800);
+  const togglePermission = (agentId: string, toolId: string) => {
+    const newPerms: Record<string, Record<string, boolean>> = {
+      ...permissions,
+      [agentId]: {
+        ...(permissions[agentId] || {}),
+        [toolId]: !(permissions[agentId]?.[toolId] || false)
+      }
+    };
+    setPermissions(newPerms);
+    updateRule('agentPermissions', newPerms);
+    // Persiste imediatamente no servidor para ter efeito instantâneo no chat e na esteira
+    void persistPermissions(newPerms);
+  };
+
+  const handleSave = async () => {
+    await persistPermissions(permissions);
   };
 
   const activeAgentInfo = AGENTS.find(a => a.id === selectedAgent);
@@ -211,26 +220,48 @@ export default function RHDashboard() {
             Recursos Humanos (RH) - Gestão de Acessos
           </h2>
           <p className="text-sm text-slate-500 mt-1">
-            Controle quais ferramentas e "superpoderes" (APIs) cada agente da equipe possui acesso.
+            Controle as alçadas de cada agente. Alterações são salvas automaticamente no servidor com efeito imediato.
           </p>
+          <div className="flex flex-wrap items-center gap-3 mt-2.5 text-[11px] font-medium text-slate-600">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+              Integração Real (trava/libera execução)
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-indigo-500" />
+              Diretriz IA (ativa instrução no prompt)
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-amber-500" />
+              Planejado (sem conector externo ainda)
+            </span>
+          </div>
         </div>
         <button
           onClick={handleSave}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
-            isSaving 
-              ? 'bg-green-100 text-green-700' 
-              : 'bg-indigo-600 text-white hover:bg-indigo-700'
+          disabled={saveState === 'saving'}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors shrink-0 ${
+            saveState === 'saved'
+              ? 'bg-emerald-100 text-emerald-700'
+              : saveState === 'error'
+              ? 'bg-red-100 text-red-700'
+              : 'bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60'
           }`}
         >
-          {isSaving ? (
+          {saveState === 'saved' ? (
             <>
               <Check className="w-4 h-4" />
-              Salvo na Nuvem!
+              Permissões Salvas!
+            </>
+          ) : saveState === 'error' ? (
+            <>
+              <AlertCircle className="w-4 h-4" />
+              Erro ao Salvar
             </>
           ) : (
             <>
               <Save className="w-4 h-4" />
-              Salvar Alterações
+              {saveState === 'saving' ? 'Salvando...' : 'Salvar Alterações'}
             </>
           )}
         </button>
@@ -358,11 +389,17 @@ export default function RHDashboard() {
                           
                           <div className="flex items-center gap-2">
                             <span className={`text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full ${
-                              tool.status === 'implemented' 
+                              tool.status === 'real_integration'
                                 ? 'bg-emerald-100 text-emerald-700'
+                                : tool.status === 'prompt_directive'
+                                ? 'bg-indigo-100 text-indigo-700'
                                 : 'bg-amber-100 text-amber-700'
                             }`}>
-                              {tool.status === 'implemented' ? 'Instalado' : 'Parcial / Planejado'}
+                              {tool.status === 'real_integration'
+                                ? 'Integração Real'
+                                : tool.status === 'prompt_directive'
+                                ? 'Diretriz IA (Prompt)'
+                                : 'Planejado (Sem API)'}
                             </span>
                           </div>
                         </div>

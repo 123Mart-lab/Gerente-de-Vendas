@@ -722,7 +722,7 @@ export async function composeProductOntoStage(
   > = {
     left: { centerX: 910, bottomY: 1095, maxW: 500, maxH: 820 },
     right: { centerX: 290, bottomY: 1095, maxW: 500, maxH: 820 },
-    top: { centerX: 905, bottomY: 1115, maxW: 500, maxH: 770 },
+    top: { centerX: 925, bottomY: 1115, maxW: 500, maxH: 770 },
     bottom: { centerX: 600, bottomY: 690, maxW: 490, maxH: 550 },
     none: { centerX: 600, bottomY: 1060, maxW: 860, maxH: 860 },
   };
@@ -751,7 +751,7 @@ export async function composeProductOntoStage(
     shadowPixels[i] = 8;
     shadowPixels[i + 1] = 15;
     shadowPixels[i + 2] = 30;
-    shadowPixels[i + 3] = Math.round(rawSilhouette.data[i + 3] * 0.28);
+    shadowPixels[i + 3] = Math.round(rawSilhouette.data[i + 3] * 0.34);
   }
   const padShadow = 44;
   const castShadowPng = await sharp(shadowPixels, {
@@ -768,27 +768,27 @@ export async function composeProductOntoStage(
     .png()
     .toBuffer();
 
-  // 2. Sombra de contato no piso/superfície (ambient occlusion sob a base da embalagem)
+  // 2. Sombra de contato no piso/superfície (ambient occlusion firme sob a base da embalagem)
   const contactCx = left + Math.round(prodW / 2);
-  const contactCy = Math.min(size - 20, top + prodH - 4);
-  const contactRx = Math.round(prodW * 0.48);
-  const contactRy = Math.max(18, Math.round(prodH * 0.04));
+  const contactCy = Math.min(size - 20, top + prodH - 3);
+  const contactRx = Math.round(prodW * 0.52);
+  const contactRy = Math.max(20, Math.round(prodH * 0.044));
 
   const contactShadowSvg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">
       <defs>
         <radialGradient id="aoCore" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stop-color="#020617" stop-opacity="0.46" />
-          <stop offset="52%" stop-color="#020617" stop-opacity="0.22" />
+          <stop offset="0%" stop-color="#020617" stop-opacity="0.60" />
+          <stop offset="52%" stop-color="#020617" stop-opacity="0.30" />
           <stop offset="100%" stop-color="#020617" stop-opacity="0" />
         </radialGradient>
         <radialGradient id="aoSoft" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stop-color="#020617" stop-opacity="0.26" />
-          <stop offset="68%" stop-color="#020617" stop-opacity="0.08" />
+          <stop offset="0%" stop-color="#020617" stop-opacity="0.34" />
+          <stop offset="68%" stop-color="#020617" stop-opacity="0.11" />
           <stop offset="100%" stop-color="#020617" stop-opacity="0" />
         </radialGradient>
       </defs>
-      <ellipse cx="${contactCx + 6}" cy="${contactCy + 10}" rx="${Math.round(contactRx * 1.32)}" ry="${Math.round(contactRy * 1.75)}" fill="url(#aoSoft)" />
+      <ellipse cx="${contactCx + 6}" cy="${contactCy + 10}" rx="${Math.round(contactRx * 1.36)}" ry="${Math.round(contactRy * 1.80)}" fill="url(#aoSoft)" />
       <ellipse cx="${contactCx}" cy="${contactCy}" rx="${contactRx}" ry="${contactRy}" fill="url(#aoCore)" />
     </svg>
   `;
@@ -1171,7 +1171,7 @@ export function buildHybridOverlaySvg(spec: HybridOverlaySpec, size = 1200): str
   if (spec.textPosition === 'top') {
     const margin = 48;
     const fullW = size - margin * 2;
-    const leftColW = 550;
+    const leftColW = 505;
 
     // Scrim suave contínuo no topo + lateral esquerda (começando em y=0 para ZERO emenda visível), deixando a direita inferior aberta para o produto
     elements.push(`

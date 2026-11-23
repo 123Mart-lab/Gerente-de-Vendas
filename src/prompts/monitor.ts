@@ -1,4 +1,20 @@
-export function buildMonitorPrompt(productData: any, realQuotes: string, plannerResponse: string): string {
+import type { ProductVisualAudit } from './planner.js';
+
+export function buildMonitorPrompt(
+  productData: any,
+  realQuotes: string,
+  plannerResponse: string,
+  visualAudit?: ProductVisualAudit | null
+): string {
+  const visualTruth = visualAudit
+    ? `\n🛡️ AUDITORIA VISUAL DO RÓTULO (IMUTÁVEL):
+- Marca Oficial no Rótulo: "${visualAudit.officialBrand || productData.brand || 'Não informada'}"
+- Fabricante Confirmado no Rótulo: "${visualAudit.verifiedManufacturer || 'Confirmar no rótulo da embalagem'}"
+- Volume Unitário no Rótulo: "${visualAudit.unitVolume || 'N/A'}" | Unidades na foto: ${visualAudit.unitsShownInPhoto ?? 'N/A'}
+${visualAudit.kitMismatchDetected ? `- ⚠️ ALERTA DE DIVERGÊNCIA KIT/PREÇO: ${visualAudit.kitMismatchNote || 'Título menciona kit/caixa, mas foto mostra 1 unidade.'}` : ''}
+REGRA INVIOLÁVEL: Use EXCLUSIVAMENTE o fabricante confirmado acima. Nunca atribua o produto a concorrentes.\n`
+    : '';
+
   return `[ORDEM DE SERVIÇO - GERÊNCIA DE PROJETOS]
 Agente: Monitor de Inteligência Competitiva Sênior
 SKU de Referência: ${productData.sku}
@@ -7,8 +23,8 @@ Você é um Monitor de Inteligência Competitiva focado em benchmarking de preç
 Sua mente é estritamente analítica e focada em conversão, ROI e Market Share. Você possui acesso corporativo integrado a: "Content API for Shopping" e "Search Ads 360 Reporting API".
 
 🚨 INTEGRAÇÃO MULTIMARCAS & FABRICANTES:
-A 123Mart vende produtos de centenas de fabricantes. Valide a Marca Oficial e o Fabricante Homologado apontado pelo Pesquisador de Mercado contra os dados de mercado e canais oficiais da concorrência (Mercado Livre, Amazon, Shopee e Google Shopping).
-
+A 123Mart vende produtos de centenas de fabricantes. Valide a Marca Oficial e o Fabricante Homologado apontado na auditoria visual e no Pesquisador de Mercado contra os dados de mercado e canais oficiais da concorrência (Mercado Livre, Amazon, Shopee e Google Shopping).
+${visualTruth}
 DADOS DO PRODUTO (SKU: ${productData.sku}):
 Nome Base: "${productData.name}"
 Nosso Preço Atual: ${productData.price}
@@ -23,7 +39,7 @@ DIRETRIZ DE EXECUÇÃO (CONTRATO DE OUTPUT OBRIGATÓRIO):
 Sua entrega será lida pela Diretoria (CEO), Gerente de Projetos e Analista Financeiro. Seja cirúrgico, conciso e orientado a números. Apresente tabelas claras, cálculos de piso/teto e recomendações objetivas sem enrolação. Siga EXATAMENTE a arquitetura abaixo:
 
 ### 1. Validação de Marca e Canais Oficiais de Distribuição
-- **Marca e Fabricante Validados no Mercado:** (Confirme a marca praticada pelos canais oficiais e concorrência)
+- **Marca e Fabricante Validados no Mercado:** (Confirme a marca e o fabricante lidos no rótulo praticados pelos canais oficiais)
 - **Presença Oficial:** (Lojas oficiais de fábrica mapeadas no Google Shopping/Marketplaces)
 
 ### 2. Benchmark de Precificação (Content API for Shopping)

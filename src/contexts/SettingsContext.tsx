@@ -142,7 +142,7 @@ const defaultSettings: RulesSettings = {
 interface SettingsContextType {
   rules: RulesSettings;
   updateRule: <K extends keyof RulesSettings>(key: K, value: RulesSettings[K]) => void;
-  saveRules: () => void;
+  saveRules: (overrideRules?: RulesSettings) => Promise<boolean>;
 }
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
@@ -151,26 +151,50 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [rules, setRules] = useState<RulesSettings>(defaultSettings);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // Load from backend on mount
+  // Load from backend on mount; if backend has no settings yet, migrate localStorage settings up to backend
   React.useEffect(() => {
     fetch('/api/settings')
       .then(res => res.json())
       .then(data => {
-        if (Object.keys(data).length > 0) {
-          setRules(prev => ({ ...prev, ...data }));
+        if (data && Object.keys(data).length > 0) {
+          const merged: RulesSettings = {
+            ...defaultSettings,
+            ...data,
+            agentPermissions: data.agentPermissions || defaultSettings.agentPermissions,
+          };
+          setRules(merged);
+          localStorage.setItem('applet_campaign_rules', JSON.stringify(merged));
         } else {
-          // Fallback to localStorage if backend is empty
+          // Fallback to localStorage if backend is empty, and immediately persist to backend (.data/settings.json)
           const saved = localStorage.getItem('applet_campaign_rules');
+          let initialRules = defaultSettings;
           if (saved) {
             try {
-              setRules(JSON.parse(saved));
+              const parsed = JSON.parse(saved);
+              initialRules = {
+                ...defaultSettings,
+                ...parsed,
+                agentPermissions: parsed.agentPermissions || defaultSettings.agentPermissions,
+              };
             } catch (e) {}
           }
+          setRules(initialRules);
+          fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(initialRules),
+          }).catch(err => console.error('Failed to sync initial settings to backend', err));
         }
         setIsLoaded(true);
       })
       .catch(err => {
         console.error('Failed to load settings from backend', err);
+        const saved = localStorage.getItem('applet_campaign_rules');
+        if (saved) {
+          try {
+            setRules(prev => ({ ...prev, ...JSON.parse(saved) }));
+          } catch (e) {}
+        }
         setIsLoaded(true);
       });
   }, []);
@@ -179,13 +203,22 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setRules(prev => ({ ...prev, [key]: value }));
   };
 
-  const saveRules = () => {
-    localStorage.setItem('applet_campaign_rules', JSON.stringify(rules));
-    fetch('/api/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(rules)
-    }).catch(err => console.error('Failed to save settings to backend', err));
+  const saveRules = async (overrideRules?: RulesSettings): Promise<boolean> => {
+    const payload = overrideRules || rules;
+    localStorage.setItem('applet_campaign_rules', JSON.stringify(payload));
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) return false;
+      const json = await res.json();
+      return Boolean(json?.success);
+    } catch (err) {
+      console.error('Failed to save settings to backend', err);
+      return false;
+    }
   };
 
   if (!isLoaded) {

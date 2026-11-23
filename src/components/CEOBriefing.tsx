@@ -1,10 +1,10 @@
 import Markdown from 'react-markdown';
 import React, { useState, useEffect } from 'react';
 import { initAuth, googleSignIn, getAccessToken } from '../services/auth';
-import { 
-  Cloud, Check, FileText, FileDown, CheckCircle2, Circle, X, Download, 
-  FileJson, Loader2, Edit2, Save, Trash2, Layers, ShieldCheck, Plus, 
-  Send, Sparkles, Store, ExternalLink
+import {
+  Cloud, Check, FileText, FileDown, CheckCircle2, Circle, X, Download,
+  FileJson, Loader2, Edit2, Save, Trash2, Layers, ShieldCheck, Plus,
+  Send, Sparkles, Store, ExternalLink, AlertTriangle
 } from 'lucide-react';
 import axios from 'axios';
 import WorkflowManager, { WorkflowStep } from './ceo/WorkflowManager';
@@ -29,6 +29,13 @@ export interface SkuPipeline {
   steps: PipelineStep[];
   errorWaitingForSku?: boolean;
   workflowSourceOfTruth?: boolean;
+  commercialAlert?: {
+    blockedAutoSave?: boolean;
+    reason?: string;
+    manualOverrideApproved?: boolean;
+  } | null;
+  generatedSlotsCount?: number;
+  approvedSlotsCount?: number;
 }
 
 const defaultStepsTemplate: PipelineStep[] = [
@@ -63,15 +70,22 @@ export default function CEOBriefing() {
   const [isAddingNewSku, setIsAddingNewSku] = useState(false);
   const [newSkuInput, setNewSkuInput] = useState('');
   const [newSkuError, setNewSkuError] = useState<string | null>(null);
+  const [actionFeedback, setActionFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const showFeedback = (type: 'success' | 'error', text: string) => {
+    setActionFeedback({ type, text });
+    setTimeout(() => setActionFeedback(null), 5000);
+  };
 
   const confirmDelete = async (sku: string) => {
     try {
       await axios.delete(`/api/marketing/sku-briefings/${sku}`);
       setPipelines(prev => prev.filter(p => p.sku !== sku));
       setSkuToDelete(null);
+      showFeedback('success', `Pasta do SKU ${sku} removida com sucesso.`);
     } catch (e) {
       console.error(e);
-      alert('Erro ao deletar SKU'); 
+      showFeedback('error', `Erro ao deletar SKU ${sku}.`);
     }
   };
 
@@ -87,10 +101,11 @@ export default function CEOBriefing() {
     try {
       await axios.post('/api/marketing/rename-sku', { oldSku, newSku: editSkuValue });
       setEditingSkuId(null);
-      window.location.reload();
+      showFeedback('success', `SKU renomeado para ${editSkuValue} e esteira reiniciada.`);
+      fetchData();
     } catch (e) {
       console.error(e);
-      alert('Erro ao renomear SKU');
+      showFeedback('error', 'Erro ao renomear SKU.');
     }
   };
 
@@ -127,14 +142,23 @@ export default function CEOBriefing() {
       .then(res => res.json())
       .then((data: any) => {
         if (data && data.length > 0) {
-          const formattedData = data.map((b: any) => ({
-            sku: b.sku,
-            startedAt: new Date(b.startedAt || b.updatedAt || Date.now()).toLocaleString('pt-BR'),
-            finishedAt: b.finishedAt ? new Date(b.finishedAt).toLocaleString('pt-BR') : undefined,
-            steps: b.steps || defaultStepsTemplate.map(s => ({...s, isCompleted: false})),
-            workflowSourceOfTruth: b.workflowSourceOfTruth ?? true
-          }));
-          
+          const formattedData = data.map((b: any) => {
+            const generatedCount = b.generatedSlots ? Object.keys(b.generatedSlots).length : 0;
+            const approvedCount = Array.isArray(b.artApprovals?.approvedSlots)
+              ? b.artApprovals.approvedSlots.length
+              : 0;
+            return {
+              sku: b.sku,
+              startedAt: new Date(b.startedAt || b.updatedAt || Date.now()).toLocaleString('pt-BR'),
+              finishedAt: b.finishedAt ? new Date(b.finishedAt).toLocaleString('pt-BR') : undefined,
+              steps: b.steps || defaultStepsTemplate.map(s => ({ ...s, isCompleted: false })),
+              workflowSourceOfTruth: b.workflowSourceOfTruth ?? true,
+              commercialAlert: b.commercialAlert || null,
+              generatedSlotsCount: generatedCount,
+              approvedSlotsCount: approvedCount,
+            };
+          });
+
           setPipelines(formattedData);
         } else {
           setPipelines([]);
@@ -248,43 +272,51 @@ export default function CEOBriefing() {
 
       if (uploadRes.ok) {
         setDriveSuccess(true);
+        showFeedback('success', `Relatório salvo no Google Drive (${fileName}).`);
         setTimeout(() => setDriveSuccess(false), 3000);
       } else {
-        alert('Erro ao salvar no Drive.');
+        showFeedback('error', 'Erro ao salvar relatório no Google Drive.');
       }
     } catch (err) {
       console.error(err);
-      alert(err instanceof Error ? err.message : 'Erro de autenticação ou upload.');
+      showFeedback('error', err instanceof Error ? err.message : 'Erro de autenticação ou upload no Drive.');
     } finally {
       setIsSavingToDrive(false);
     }
   };
 
-  useEffect(() => {
-    if (selectedPdf && !isSavingToDrive && !driveSuccess) {
-      saveToDrive();
-    }
-  }, [selectedPdf]);
+  const handleDownloadReport = () => {
+    if (!selectedPdf?.markdown) return;
+    const blob = new Blob([selectedPdf.markdown], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${selectedPdf.role}_${selectedPdf.sku}.md`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   useEffect(() => {
     if (selectedPdf && !selectedPdf.markdown) {
       fetch(selectedPdf.url)
         .then(res => res.json())
         .then(data => {
-           setSelectedPdf(prev => prev ? { ...prev, markdown: data.markdown } : null);
+          setSelectedPdf(prev => prev ? { ...prev, markdown: data.markdown } : null);
         })
         .catch(console.error);
     }
   }, [selectedPdf]);
 
   const handleActionClick = (step: PipelineStep, sku: string) => {
-    if (!step.isCompleted) return;
-    
-    // Webhook Especialista SEO (Nuvemshop)
+    // Webhook Especialista SEO (Nuvemshop) sempre acessível para revisão / liberação de trava comercial
     if (step.type === 'webhook') {
       setSelectedWebhookSku(sku);
       return;
     }
+
+    if (!step.isCompleted) return;
     
     if (step.type === 'prompt') {
       setSelectedPrompt({ role: step.role, content: step.content || 'Conteúdo não disponível' });
@@ -328,6 +360,17 @@ export default function CEOBriefing() {
           </button>
         </div>
       </div>
+
+      {actionFeedback && (
+        <div className={`p-3.5 rounded-xl border text-xs font-semibold flex items-center justify-between ${
+          actionFeedback.type === 'success'
+            ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+            : 'bg-rose-50 border-rose-200 text-rose-800'
+        }`}>
+          <span>{actionFeedback.text}</span>
+          <button onClick={() => setActionFeedback(null)} className="ml-3 font-bold opacity-70 hover:opacity-100">✕</button>
+        </div>
+      )}
 
       {/* Pipelines (SKUs) */}
       <div className="space-y-5">
@@ -418,6 +461,13 @@ export default function CEOBriefing() {
                     <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
                     Fonte da Verdade Ativa
                   </span>
+
+                  {pipeline.commercialAlert?.blockedAutoSave && (
+                    <span className="text-[11px] font-bold text-amber-800 bg-amber-100 px-2.5 py-1 rounded-lg border border-amber-300 flex items-center gap-1">
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                      Trava Comercial (Revisar Preço/Kit)
+                    </span>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-4 text-xs font-medium text-slate-600">
@@ -428,6 +478,21 @@ export default function CEOBriefing() {
                 </div>
 
               </div>
+
+              {pipeline.commercialAlert?.blockedAutoSave && (
+                <div className="px-5 py-3 bg-amber-50 border-b border-amber-200 text-xs text-amber-900 flex items-center justify-between gap-3">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <span>{pipeline.commercialAlert.reason}</span>
+                  </div>
+                  <button
+                    onClick={() => setSelectedWebhookSku(pipeline.sku)}
+                    className="shrink-0 px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-[11px]"
+                  >
+                    Revisar &amp; Publicar Manualmente
+                  </button>
+                </div>
+              )}
 
               {/* Componente Integrado de Gerenciador de Fluxo (Drag & Drop) */}
               {isManagingThisSku && (
@@ -466,41 +531,45 @@ export default function CEOBriefing() {
                         )}
 
                         {/* Icon Box */}
-                        <button 
+                        <button
                           onClick={() => handleActionClick(step, pipeline.sku)}
-                          disabled={!step.isCompleted}
+                          disabled={!step.isCompleted && !isWebhookStep}
                           className={`relative z-10 w-12 h-12 rounded-xl border-2 flex items-center justify-center transition-all bg-white shadow-2xs
-                            ${step.isCompleted 
-                              ? 'border-emerald-500 text-emerald-600 hover:bg-emerald-50 hover:shadow-md cursor-pointer' 
-                              : 'border-slate-200 text-slate-400 bg-slate-50 opacity-60 cursor-not-allowed'
+                            ${step.isCompleted
+                              ? 'border-emerald-500 text-emerald-600 hover:bg-emerald-50 hover:shadow-md cursor-pointer'
+                              : isWebhookStep
+                                ? 'border-amber-400 text-amber-600 hover:bg-amber-50 hover:shadow-md cursor-pointer'
+                                : 'border-slate-200 text-slate-400 bg-slate-50 opacity-60 cursor-not-allowed'
                             }
                           `}
                           title={`${step.role}: ${step.actionTitle} (Clique para auditar)`}
                         >
-                          {step.type === 'pdf' ? <FileDown className="w-6 h-6" /> : 
-                           step.type === 'webhook' ? <FileJson className="w-6 h-6" /> : 
+                          {step.type === 'pdf' ? <FileDown className="w-6 h-6" /> :
+                           step.type === 'webhook' ? <FileJson className="w-6 h-6" /> :
                            <FileText className="w-6 h-6" />}
-                          
+
                           {/* Status Dot */}
                           <div className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center border-2 border-white
                             ${step.isCompleted ? 'bg-emerald-500' : 'bg-amber-500'}`}>
                           </div>
                         </button>
-                        
+
                         {/* Labels */}
                         <div className="mt-3 text-center">
                           <p className="text-sm font-bold text-slate-800 tracking-tight">
                             {step.role}
                           </p>
                           <p className={`text-xs mt-0.5 ${
-                            step.isCompleted 
-                              ? 'text-emerald-600 font-medium' 
-                              : 'text-slate-400 font-medium'
+                            step.isCompleted
+                              ? 'text-emerald-600 font-medium'
+                              : isWebhookStep
+                                ? 'text-amber-600 font-semibold'
+                                : 'text-slate-400 font-medium'
                           }`}>
-                            {step.type === 'prompt' 
-                              ? 'Ver prompt' 
-                              : step.type === 'webhook' 
-                              ? 'Webhooks' 
+                            {step.type === 'prompt'
+                              ? 'Ver prompt'
+                              : step.type === 'webhook'
+                              ? (step.isCompleted ? 'Webhooks' : 'Pendente revisão')
                               : 'Entregue'}
                           </p>
                         </div>
@@ -512,10 +581,13 @@ export default function CEOBriefing() {
               </div>
 
               {/* Barra Inferior de Ação Rápida: Webhook do Especialista em SEO */}
-              <div className="px-6 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs">
+              <div className="px-6 py-3 bg-slate-50 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
                 <span className="text-slate-500 flex items-center gap-1.5">
                   <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                  Diretriz Obrigatória do Diretor de Arte: <strong>Fonte da Verdade em conformidade (8/8 slots).</strong>
+                  Diretor de Arte:{' '}
+                  <strong>
+                    {pipeline.generatedSlotsCount ?? 0}/8 slots gerados • {pipeline.approvedSlotsCount ?? 0}/8 aprovados
+                  </strong>
                 </span>
 
                 <button
@@ -552,25 +624,34 @@ export default function CEOBriefing() {
                 <FileDown className="w-5 h-5 text-sky-600" />
                 Visualizador de Relatório — {selectedPdf.role}_{selectedPdf.sku}.pdf
               </h3>
-              <div className="flex items-center gap-3">
-                {isSavingToDrive && (
-                  <span className="text-xs font-medium text-sky-600 flex items-center gap-1">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin"/> Salvando no Drive...
-                  </span>
-                )}
+              <div className="flex items-center gap-2">
                 {driveSuccess && (
-                  <span className="text-xs font-bold text-emerald-600 flex items-center gap-1">
-                    <Check className="w-3.5 h-3.5"/> Salvo no Drive
+                  <span className="text-xs font-bold text-emerald-600 flex items-center gap-1 mr-1">
+                    <Check className="w-3.5 h-3.5" /> Salvo no Drive
                   </span>
                 )}
-                <button 
-                  onClick={() => window.open(selectedPdf.url, '_blank')}
-                  className="text-slate-600 hover:text-sky-600 transition-colors flex items-center gap-1 text-xs font-bold bg-white border border-slate-200 px-3 py-1.5 rounded-lg shadow-2xs"
-                  title="Baixar Arquivo"
+                <button
+                  onClick={saveToDrive}
+                  disabled={!selectedPdf.markdown || isSavingToDrive}
+                  className="text-sky-700 hover:text-sky-900 disabled:opacity-40 transition-colors flex items-center gap-1 text-xs font-bold bg-sky-50 border border-sky-200 px-3 py-1.5 rounded-lg shadow-2xs"
+                  title="Salvar este relatório na pasta do SKU no Google Drive"
                 >
-                  <Download className="w-4 h-4" /> Baixar PDF
+                  {isSavingToDrive ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Cloud className="w-4 h-4" />
+                  )}
+                  {isSavingToDrive ? 'Salvando...' : 'Salvar no Drive'}
                 </button>
-                <button 
+                <button
+                  onClick={handleDownloadReport}
+                  disabled={!selectedPdf.markdown}
+                  className="text-slate-600 hover:text-sky-600 disabled:opacity-40 transition-colors flex items-center gap-1 text-xs font-bold bg-white border border-slate-200 px-3 py-1.5 rounded-lg shadow-2xs"
+                  title="Baixar Relatório (.md)"
+                >
+                  <Download className="w-4 h-4" /> Baixar Relatório
+                </button>
+                <button
                   onClick={() => { setSelectedPdf(null); setDriveSuccess(false); }}
                   className="text-slate-400 hover:text-slate-600 transition-colors p-1"
                 >

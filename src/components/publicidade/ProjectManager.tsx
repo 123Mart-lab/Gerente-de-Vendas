@@ -240,6 +240,15 @@ function OtimizacaoAnuncios() {
   const [isAutoPilotRunning, setIsAutoPilotRunning] = useState(false);
   const autoPilotRef = useRef(false);
   const [validationAlert, setValidationAlert] = useState<string | null>(null);
+  const [pipelineState, setPipelineState] = useState<{
+    sku: string;
+    isRunning: boolean;
+    status: string;
+    currentStep: string;
+    completedSteps: string[];
+    commercialAlert?: any;
+    error?: string | null;
+  } | null>(null);
 
   const [mockHistory, setMockHistory] = useState<AuditTask[]>([]);
   
@@ -353,24 +362,105 @@ function OtimizacaoAnuncios() {
     setShowDropdown(false);
   };
 
+  const computeProgressFromSteps = (completed: string[], isStillRunning: boolean) => {
+    const coreSteps = ['planner', 'monitor', 'manager', 'art', 'seo'];
+    const done = coreSteps.filter((s) => completed.includes(s)).length;
+    if (!isStillRunning && done >= coreSteps.length) return 5;
+    return done;
+  };
+
+  // Sincroniza status real da esteira quando o SKU ativo mudar ou se já houver execução em andamento
+  useEffect(() => {
+    if (!activeSku || !validateSku(activeSku).isValid) {
+      setPipelineState(null);
+      return;
+    }
+    let cancelled = false;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+    const checkStatus = async () => {
+      try {
+        const res = await axios.get(`/api/marketing/orchestration-status/${encodeURIComponent(activeSku)}`);
+        if (cancelled || !res.data) return;
+        const data = res.data;
+        const completed = Array.isArray(data.completedSteps) ? data.completedSteps : [];
+        setPipelineState({
+          sku: activeSku,
+          isRunning: Boolean(data.isRunning),
+          status: data.status || 'idle',
+          currentStep: data.currentStep || 'idle',
+          completedSteps: completed,
+          commercialAlert: data.commercialAlert || null,
+          error: data.error || null,
+        });
+        setProgress(computeProgressFromSteps(completed, Boolean(data.isRunning)));
+        if (data.isRunning) {
+          setIsRunning(true);
+        } else if (!autoPilotRef.current) {
+          setIsRunning(false);
+          if (pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = null;
+          }
+        }
+      } catch {
+        // silencioso
+      }
+    };
+
+    checkStatus();
+    pollTimer = setInterval(checkStatus, 3000);
+    return () => {
+      cancelled = true;
+      if (pollTimer) clearInterval(pollTimer);
+    };
+  }, [activeSku]);
+
+  const pollOrchestrationUntilDone = async (sku: string, timeoutMs = 240_000) => {
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      await new Promise((resolve) => setTimeout(resolve, 2500));
+      try {
+        const res = await axios.get(`/api/marketing/orchestration-status/${encodeURIComponent(sku)}`);
+        const data = res.data || {};
+        const completed = Array.isArray(data.completedSteps) ? data.completedSteps : [];
+        setPipelineState({
+          sku,
+          isRunning: Boolean(data.isRunning),
+          status: data.status || 'idle',
+          currentStep: data.currentStep || 'idle',
+          completedSteps: completed,
+          commercialAlert: data.commercialAlert || null,
+          error: data.error || null,
+        });
+        setProgress(computeProgressFromSteps(completed, Boolean(data.isRunning)));
+        if (!data.isRunning) {
+          return data;
+        }
+      } catch {
+        // continua tentando até timeout
+      }
+    }
+    return null;
+  };
+
   const startAutoPilot = async () => {
     const newState = !isAutoPilotRunning;
     setIsAutoPilotRunning(newState);
     autoPilotRef.current = newState;
     setValidationAlert(null);
-    
+
     if (newState) {
       try {
         const response = await axios.get('/api/marketing/products?limit=50&page=1');
         const catalog = response.data || [];
-        
+
         for (const p of catalog) {
           if (!autoPilotRef.current) break;
-          
+
           const rawSku = p.id || p.sku;
           const validation = validateSku(rawSku);
 
-          // Validação rigorosa: ignora produtos com SKU inválido
           if (!validation.isValid) {
             console.warn(`[Piloto Automático] Produto ignorado por SKU inválido: ${p.name} (SKU: ${rawSku})`);
             continue;
@@ -380,31 +470,25 @@ function OtimizacaoAnuncios() {
             const isKit = (p.name?.pt || p.name || '').toLowerCase().includes('kit');
             if (ignoreKits && isKit) continue;
           }
-          
+
           setActiveSku(validation.formattedSku, p.name?.pt || p.name, p);
           setSearchTerm(p.name?.pt || p.name);
           setIsRunning(true);
           setProgress(0);
-          
-          let pVal = 0;
-          const interval = setInterval(() => {
-            pVal++;
-            if(pVal < 4) setProgress(pVal);
-          }, 2000);
-          
+
           try {
-            await axios.post('/api/marketing/orchestrate-optimization', { 
+            const res = await axios.post('/api/marketing/orchestrate-optimization', {
               productId: validation.formattedSku,
               sku: validation.formattedSku,
               query: p.name?.pt || p.name,
               name: p.name?.pt || p.name
             });
-            setProgress(4);
-            await new Promise(resolve => setTimeout(resolve, 3000));
+            if (!res.data?.blocked) {
+              await pollOrchestrationUntilDone(validation.formattedSku);
+            }
           } catch (err) {
             console.error(err);
           } finally {
-            clearInterval(interval);
             setIsRunning(false);
           }
         }
@@ -421,7 +505,6 @@ function OtimizacaoAnuncios() {
     setValidationAlert(null);
     const validation = validateSku(activeSku);
 
-    // Validação estrita antes de permitir envio
     if (!validation.isValid) {
       setValidationAlert(`Bloqueio de Execução: ${validation.message} Defina um SKU válido iniciado em '123Mart' no topo da tela antes de iniciar a esteira.`);
       return;
@@ -429,27 +512,35 @@ function OtimizacaoAnuncios() {
 
     setIsRunning(true);
     setProgress(0);
-
-    // Mock progress visualizer that moves along while waiting
-    const progressInterval = setInterval(() => {
-      setProgress(p => {
-        if (p < 3) return p + 1;
-        return p;
-      });
-    }, 4000);
+    setPipelineState({
+      sku: validation.formattedSku,
+      isRunning: true,
+      status: 'running',
+      currentStep: 'visual_audit',
+      completedSteps: [],
+      commercialAlert: null,
+      error: null,
+    });
 
     try {
-      await axios.post('/api/marketing/orchestrate-optimization', { 
+      const res = await axios.post('/api/marketing/orchestrate-optimization', {
         productId: validation.formattedSku,
         sku: validation.formattedSku,
         query: activeProductName || searchTerm,
         name: activeProductName || searchTerm
       });
-      setProgress(4);
-    } catch (err) {
+
+      if (res.data?.blocked) {
+        setValidationAlert(res.data?.response || res.data?.reason || 'Execução bloqueada pelos filtros ativos.');
+        setIsRunning(false);
+        return;
+      }
+
+      await pollOrchestrationUntilDone(validation.formattedSku);
+    } catch (err: any) {
       console.error('Erro na orquestração:', err);
+      setValidationAlert(err?.response?.data?.error || 'Erro ao iniciar a esteira de otimização.');
     } finally {
-      clearInterval(progressInterval);
       setIsRunning(false);
     }
   };
@@ -655,6 +746,82 @@ function OtimizacaoAnuncios() {
             Flotador Azulim (123Mart09015)
           </button>
         </div>
+
+        {/* Painel de Progresso Real da Esteira + Trava Comercial */}
+        {pipelineState && (pipelineState.isRunning || pipelineState.commercialAlert?.blockedAutoSave || pipelineState.error) && (
+          <div className="mt-5 space-y-3">
+            {pipelineState.isRunning && (
+              <div className="p-4 rounded-xl bg-sky-50 border border-sky-200 space-y-3">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-sky-900 flex items-center gap-2">
+                    <RefreshCw className="w-4 h-4 text-sky-600 animate-spin" />
+                    Esteira em execução real para <span className="font-mono">{pipelineState.sku}</span>
+                  </span>
+                  <span className="font-mono font-bold text-sky-700">{progress}/5 etapas</span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-[11px]">
+                  {[
+                    { key: 'planner', label: '1. Auditoria Visual + Planner' },
+                    { key: 'monitor', label: '2. Monitor Preços' },
+                    { key: 'manager', label: '3. Briefing Mestre' },
+                    { key: 'art', label: '4. Diretor de Arte' },
+                    { key: 'seo', label: '5. Especialista SEO' },
+                  ].map((st) => {
+                    const done = pipelineState.completedSteps.includes(st.key);
+                    const active =
+                      pipelineState.currentStep === st.key ||
+                      (st.key === 'planner' && pipelineState.currentStep === 'visual_audit');
+                    return (
+                      <div
+                        key={st.key}
+                        className={`px-2.5 py-2 rounded-lg border font-semibold flex items-center gap-1.5 ${
+                          done
+                            ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                            : active
+                              ? 'bg-white border-sky-400 text-sky-800 shadow-2xs'
+                              : 'bg-white/60 border-slate-200 text-slate-400'
+                        }`}
+                      >
+                        {done ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        ) : active ? (
+                          <RefreshCw className="w-3.5 h-3.5 text-sky-600 animate-spin shrink-0" />
+                        ) : (
+                          <span className="w-2 h-2 rounded-full bg-slate-300 shrink-0" />
+                        )}
+                        <span className="truncate">{st.label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {pipelineState.commercialAlert?.blockedAutoSave && (
+              <div className="p-4 rounded-xl bg-amber-50 border border-amber-300 text-amber-950 text-xs flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="font-bold uppercase tracking-wide text-amber-900">
+                    Trava Comercial Ativada — Publicação Automática na Nuvemshop Pausada
+                  </p>
+                  <p className="leading-relaxed text-amber-900/90">
+                    {pipelineState.commercialAlert.reason}
+                  </p>
+                  <p className="text-[11px] font-semibold text-amber-800">
+                    Ação recomendada: Revise o preço ou o título do kit na Nuvemshop e, quando estiver seguro, libere a publicação manual pela aba <strong>Briefings &rarr; Etapa 9 (Webhook SEO)</strong>.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {pipelineState.error && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>Erro na esteira de {pipelineState.sku}: {pipelineState.error}</span>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Communication and Workflow WhatsApp UI */}
         <div className="mt-8 border-t border-slate-100 pt-6">

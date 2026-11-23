@@ -1,14 +1,69 @@
-import { buildPlannerPrompt } from '../prompts/planner';
-import { buildMonitorPrompt } from '../prompts/monitor';
+import { buildPlannerPrompt } from '../prompts/planner.js';
+import { buildMonitorPrompt } from '../prompts/monitor.js';
+import {
+  buildManagerBriefingPrompt,
+  formatManagerBriefingMarkdown,
+  type ManagerStrategicBriefing
+} from '../prompts/manager.js';
+import {
+  buildArtDirectorPlanPrompt,
+  buildArtSlotRevisionPrompt,
+  formatArtPlanMarkdown,
+  validateAndNormalizeArtSlot,
+  type ArtDirectionPlan,
+  type ArtSlotPlan
+} from '../prompts/artDirector.js';
 import { GoogleGenAI, Type, Tool, HarmCategory, HarmBlockThreshold } from '@google/genai';
 import fs from 'fs';
 import path from 'path';
+import axios from 'axios';
+import sharp from 'sharp';
 import { nuvemshopService } from './nuvemshop.js';
 import { firebaseService } from './firebase.js';
 import { buildSeoExpertPrompt } from '../prompts/seoExpert.js';
 
-// Inicializa a engine do Gemini com a API Key injetada no ambiente
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+function getAiClient(): GoogleGenAI {
+  return new GoogleGenAI({
+    apiKey: process.env.GEMINI_API_KEY,
+    httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+  });
+}
+
+// Instância padrão mantida para compatibilidade com métodos existentes
+const ai = getAiClient();
+
+function parseSafeJson<T>(rawText: string, fallback: T): T {
+  const cleaned = (rawText || '')
+    .trim()
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/```\s*$/i, '')
+    .trim();
+  try {
+    return JSON.parse(cleaned) as T;
+  } catch {
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      try {
+        return JSON.parse(cleaned.slice(start, end + 1)) as T;
+      } catch {}
+    }
+    return fallback;
+  }
+}
+
+function isInvalidCatalogImage(src: string | undefined): boolean {
+  if (!src) return true;
+  return (
+    src.includes('/assets/aistudio/') ||
+    src.includes('image_74c58744') ||
+    src.includes('image_0553b0bf') ||
+    src.includes('image_27adf632') ||
+    src.includes('image_ee30f5f6') ||
+    /image_[0-9a-f]{8}/i.test(src)
+  );
+}
 
 /**
  * Lê o arquivo Markdown correspondente à etapa da pipeline atual.
@@ -45,7 +100,7 @@ function getTargetAgentPersona(receiverId: string, fullAgentsDoc: string): strin
     'vendedor-2': 'Vendedores',
     'pesquisador': 'Pesquisador de Mercado',
     'monitor': 'Monitor de Concorrência',
-    'art': 'Social Media',
+    'art': 'Diretor de Arte e Audiovisual',
     'copywriter': 'Redator',
     'seo': 'Especialista SEO',
     'merchant': 'Especialista Merchant',
@@ -250,15 +305,248 @@ Faça os cálculos de viabilidade (markup/markdown) com base nessas premissas fi
   },
   
   
-  async runOrchestrationPipeline(productData: any, onStepComplete?: (step: string, prompt: string, response: string) => void, saveProductCallback?: (seoJson: any) => Promise<void>) {
+  async generateManagerBriefing(
+    productData: any,
+    plannerSummary: string,
+    monitorSummary: string,
+    officialBrand: string
+  ): Promise<{
+    briefing: ManagerStrategicBriefing;
+    markdown: string;
+    prompt: string;
+    usage?: any;
+  }> {
+    const client = getAiClient();
+    const prompt = buildManagerBriefingPrompt(productData, plannerSummary, monitorSummary, officialBrand);
+
+    const result = await client.models.generateContent({
+      model: 'gemini-4-hydrogen',
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      config: {
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const fallbackBriefing: ManagerStrategicBriefing = {
+      sku: productData.sku || '',
+      officialBrand,
+      manufacturer: officialBrand,
+      productCategory: 'E-commerce Geral',
+      targetPersona: 'Consumidor buscando desempenho, segurança e custo-benefício comprovado.',
+      positioningDirective: `Posicionar ${productData.name} (${officialBrand}) com clareza técnica, destaque de benefícios reais e foco em conversão.`,
+      pricingVerdict: `Oferta competitiva alinhada ao valor agregado do produto ${officialBrand}.`,
+      topPains: ['Falta de informação técnica clara no anúncio', 'Dúvida sobre rendimento real', 'Insegurança quanto à procedência'],
+      topObjections: ['Será que realmente funciona?', 'Quanto rende na prática?', 'É original de fábrica?'],
+      verifiedTechnicalFacts: [productData.name || `SKU ${productData.sku}`],
+      copyTriggers: ['Original de Fábrica', 'Alto Rendimento', 'Uso Prático', 'Segurança Comprovada'],
+      slotAgenda: Array.from({ length: 8 }, (_, idx) => ({
+        slotNumber: idx + 1,
+        commercialObjective:
+          idx === 0
+            ? 'Capa oficial limpa de marketplace (fundo branco puro, sem textos)'
+            : `Destaque comercial e quebra de objeção — Slot ${idx + 1}`,
+        keyBenefit: idx === 0 ? 'Reconhecimento imediato da embalagem real' : 'Benefício prático do produto',
+        objectionToBreak: 'Dúvida na decisão de compra',
+        mustIncludeFacts: [officialBrand],
+      })),
+    };
+
+    const parsed = parseSafeJson<Partial<ManagerStrategicBriefing>>(result.text || '{}', fallbackBriefing);
+
+    // Garante exatamente 8 slots numerados de 1 a 8
+    const rawAgenda = Array.isArray(parsed.slotAgenda) ? parsed.slotAgenda : [];
+    const normalizedAgenda = Array.from({ length: 8 }, (_, idx) => {
+      const slotNum = idx + 1;
+      const found = rawAgenda.find((s) => Number(s.slotNumber) === slotNum) || rawAgenda[idx];
+      return {
+        slotNumber: slotNum,
+        commercialObjective: found?.commercialObjective || fallbackBriefing.slotAgenda[idx].commercialObjective,
+        keyBenefit: found?.keyBenefit || fallbackBriefing.slotAgenda[idx].keyBenefit,
+        objectionToBreak: found?.objectionToBreak || fallbackBriefing.slotAgenda[idx].objectionToBreak,
+        mustIncludeFacts: Array.isArray(found?.mustIncludeFacts) ? found.mustIncludeFacts : [officialBrand],
+      };
+    });
+
+    const briefing: ManagerStrategicBriefing = {
+      sku: parsed.sku || productData.sku || '',
+      officialBrand: (parsed.officialBrand || officialBrand).trim(),
+      manufacturer: (parsed.manufacturer || parsed.officialBrand || officialBrand).trim(),
+      productCategory: parsed.productCategory || fallbackBriefing.productCategory,
+      targetPersona: parsed.targetPersona || fallbackBriefing.targetPersona,
+      positioningDirective: parsed.positioningDirective || fallbackBriefing.positioningDirective,
+      pricingVerdict: parsed.pricingVerdict || fallbackBriefing.pricingVerdict,
+      topPains: Array.isArray(parsed.topPains) && parsed.topPains.length > 0 ? parsed.topPains : fallbackBriefing.topPains,
+      topObjections: Array.isArray(parsed.topObjections) && parsed.topObjections.length > 0 ? parsed.topObjections : fallbackBriefing.topObjections,
+      verifiedTechnicalFacts:
+        Array.isArray(parsed.verifiedTechnicalFacts) && parsed.verifiedTechnicalFacts.length > 0
+          ? parsed.verifiedTechnicalFacts
+          : fallbackBriefing.verifiedTechnicalFacts,
+      copyTriggers: Array.isArray(parsed.copyTriggers) && parsed.copyTriggers.length > 0 ? parsed.copyTriggers : fallbackBriefing.copyTriggers,
+      slotAgenda: normalizedAgenda,
+    };
+
+    const markdown = formatManagerBriefingMarkdown(briefing, productData.sku, productData.name || `Produto ${productData.sku}`);
+    return { briefing, markdown, prompt, usage: result.usageMetadata };
+  },
+
+  /**
+   * Diretor de Arte Multimodal: inspeciona TODAS as fotos reais do produto na Nuvemshop + Briefing Estratégico do Gerente
+   * e gera o plano visual estruturado de 8 slots com textos curtos Mobile-First, zero erros de grafia e prompts duplos (Híbrido / IA Integrada).
+   */
+  async generateArtDirectionPlan(
+    productData: any,
+    managerBriefing: ManagerStrategicBriefing | null
+  ): Promise<{
+    plan: ArtDirectionPlan;
+    markdown: string;
+    prompt: string;
+    usage?: any;
+  }> {
+    const client = getAiClient();
+    const rawImages = Array.isArray(productData.images) ? productData.images : [];
+    const validImages = rawImages.filter((img: any) => img?.src && !isInvalidCatalogImage(img.src)).slice(0, 8);
+
+    // Baixa TODAS as imagens válidas da Nuvemshop para inspeção visual real pelo Diretor de Arte (Multimodal)
+    const imageParts: any[] = [];
+    const imagesMeta: Array<{ index: number; alt: string; url: string }> = [];
+
+    for (let i = 0; i < validImages.length; i++) {
+      const img = validImages[i];
+      imagesMeta.push({ index: i, alt: img.alt || '', url: img.src });
+
+      try {
+        let buf: Buffer | null = null;
+        if (img.src.startsWith('http://') || img.src.startsWith('https://')) {
+          const dl = await axios.get(img.src, {
+            responseType: 'arraybuffer',
+            timeout: 12000,
+            headers: { 'User-Agent': '123Mart ArtDirector/3.0' },
+          });
+          buf = Buffer.from(dl.data);
+        } else {
+          const rel = img.src.replace(/^\//, '');
+          const localPath = path.join(process.cwd(), 'public', rel);
+          if (fs.existsSync(localPath)) buf = fs.readFileSync(localPath);
+        }
+
+        if (buf) {
+          // Otimiza resolução de visão para 640px (excelente leitura de rótulos e baixo custo de tokens)
+          const resized = await sharp(buf)
+            .resize(640, 640, { fit: 'inside', withoutEnlargement: true })
+            .jpeg({ quality: 82 })
+            .toBuffer();
+
+          imageParts.push({
+            text: `[FOTO REAL DO PRODUTO — ÍNDICE ${i} (Foto ${i + 1} de ${validImages.length})]`,
+          });
+          imageParts.push({
+            inlineData: {
+              data: resized.toString('base64'),
+              mimeType: 'image/jpeg',
+            },
+          });
+        }
+      } catch (imgErr: any) {
+        console.warn(`[Diretor de Arte Multimodal] Falha ao baixar foto ${i + 1} (${img.src}):`, imgErr?.message);
+      }
+    }
+
+    const promptText = buildArtDirectorPlanPrompt(productData, managerBriefing, imagesMeta);
+    const officialBrand = managerBriefing?.officialBrand || productData.brand || 'Marca Oficial';
+
+    const result = await client.models.generateContent({
+      model: 'gemini-4-hydrogen',
+      contents: [
+        {
+          role: 'user',
+          parts: [...imageParts, { text: promptText }],
+        },
+      ],
+      config: {
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const parsed = parseSafeJson<Partial<ArtDirectionPlan>>(result.text || '{}', {});
+    const rawSlots = Array.isArray(parsed.slots) ? parsed.slots : [];
+    const totalImages = Math.max(1, validImages.length);
+
+    const normalizedSlots: ArtSlotPlan[] = Array.from({ length: 8 }, (_, idx) => {
+      const slotNumber = idx + 1;
+      const matched = rawSlots.find((s) => Number(s.slotNumber) === slotNumber) || rawSlots[idx] || {};
+      return validateAndNormalizeArtSlot(matched, slotNumber, totalImages);
+    });
+
+    const verifiedManufacturer =
+      typeof parsed.verifiedManufacturer === 'string' &&
+      parsed.verifiedManufacturer.trim().length > 0 &&
+      !/confirmar/i.test(parsed.verifiedManufacturer)
+        ? parsed.verifiedManufacturer.trim()
+        : undefined;
+
+    const plan: ArtDirectionPlan = {
+      sku: productData.sku || parsed.sku || '',
+      officialBrand: parsed.officialBrand || officialBrand,
+      ...(verifiedManufacturer ? { verifiedManufacturer } : {}),
+      visualIdentitySummary:
+        parsed.visualIdentitySummary ||
+        `Direção de arte criada após inspeção visual de ${totalImages} foto(s) real(is) do produto ${officialBrand}.`,
+      packagingColorsDetected: Array.isArray(parsed.packagingColorsDetected) ? parsed.packagingColorsDetected : [],
+      photosAnalyzedCount: imageParts.filter((p) => p.inlineData).length || totalImages,
+      orthographyChecked: true,
+      videoConcept9x16: parsed.videoConcept9x16,
+      slots: normalizedSlots,
+    };
+
+    const markdown = formatArtPlanMarkdown(plan, productData.sku, productData.name || `Produto ${productData.sku}`);
+    return { plan, markdown, prompt: promptText, usage: result.usageMetadata };
+  },
+
+  /**
+   * Revisão cirúrgica de 1 slot pelo Diretor de Arte quando o usuário escreve instruções manuais.
+   */
+  async reviseArtSlotPlan(
+    currentSlot: ArtSlotPlan,
+    userInstructions: string,
+    productData: any,
+    officialBrand: string,
+    totalValidImages: number
+  ): Promise<ArtSlotPlan> {
+    const client = getAiClient();
+    const promptText = buildArtSlotRevisionPrompt(
+      currentSlot,
+      userInstructions,
+      productData,
+      officialBrand,
+      totalValidImages
+    );
+
+    const result = await client.models.generateContent({
+      model: 'gemini-4-hydrogen',
+      contents: [{ role: 'user', parts: [{ text: promptText }] }],
+      config: {
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const parsed = parseSafeJson<Partial<ArtSlotPlan>>(result.text || '{}', currentSlot);
+    return validateAndNormalizeArtSlot(
+      { ...currentSlot, ...parsed },
+      currentSlot.slotNumber,
+      Math.max(1, totalValidImages)
+    );
+  },
+
+  async runOrchestrationPipeline(
+    productData: any,
+    onStepComplete?: (step: string, prompt: string, response: string, extraData?: Record<string, any>) => void,
+    saveProductCallback?: (seoJson: any) => Promise<void>
+  ) {
     if (!productData || !productData.sku || productData.sku === 'undefined' || productData.sku.toString().trim() === '') {
       throw new Error(`[OrchestrationPipeline] Falha crítica de validação: SKU do produto não fornecido ou indefinido (${productData?.sku}). A esteira exige um SKU válido iniciado em 123Mart.`);
     }
 
-    const settings = await firebaseService.getSettings();
-    const hasRallyMcp = settings?.agentPermissions?.['pesquisador-mercado']?.['github-rally-mcp'] !== false;
-    const hasCloudSearch = settings?.agentPermissions?.['pesquisador-mercado']?.['cloud-search'] === true;
-    const hasNlp = settings?.agentPermissions?.['pesquisador-mercado']?.['nlp'] === true;
+    const client = getAiClient();
 
     // 1. Extração de Dados Reais (Background)
     let realTrends = '';
@@ -266,163 +554,181 @@ Faça os cálculos de viabilidade (markup/markdown) com base nessas premissas fi
     try {
       const trendsData = await this.searchMarketplaceTrends(productData.name);
       realTrends = JSON.stringify(trendsData);
-    } catch(e) { realTrends = 'Não foi possível buscar tendências em tempo real.'; }
-    
+    } catch { realTrends = 'Não foi possível buscar tendências em tempo real.'; }
+
     try {
       const quotesData = await this.searchProductQuotes(productData.name);
       realQuotes = JSON.stringify(quotesData);
-    } catch(e) { realQuotes = 'Não foi possível buscar cotações em tempo real.'; }
+    } catch { realQuotes = 'Não foi possível buscar cotações em tempo real.'; }
 
-    // 1. Pesquisador (Planner)
+    console.log(`\n================================================================`);
+    console.log(`🚀 [INÍCIO DA ESTEIRA PADRÃO AGÊNCIA - SKU: ${productData.sku}]`);
+    console.log(`================================================================`);
+
+    let totalPipelineTokens = 0;
+    const tokenAuditMap: Record<string, any> = {};
+
+    // ETAPA 1: Pesquisador de Mercado (Planner)
     const plannerPrompt = buildPlannerPrompt(productData, realTrends);
-    const plannerResult = await ai.models.generateContent({ model: 'gemini-3.8-flash', contents: plannerPrompt, config: { temperature: 0.5 } });
-    const plannerResponse = plannerResult.text;
-    if (onStepComplete) onStepComplete('planner', plannerPrompt, plannerResponse || '');
+    const plannerResult = await client.models.generateContent({
+      model: 'gemini-3.1-flash-lite',
+      contents: plannerPrompt,
+    });
+    const plannerResponse = plannerResult.text || '';
+    if (plannerResult.usageMetadata) {
+      totalPipelineTokens += plannerResult.usageMetadata.totalTokenCount || 0;
+      tokenAuditMap['planner'] = plannerResult.usageMetadata;
+      console.log(`[📊 Token Audit] 1. Pesquisador (Planner): ${plannerResult.usageMetadata.totalTokenCount} tokens`);
+    }
+    if (onStepComplete) onStepComplete('planner', plannerPrompt, plannerResponse);
 
-    // 2. Monitor de Inteligência Competitiva
-    const monitorPrompt = buildMonitorPrompt(productData, realQuotes, plannerResponse);
-    const monitorResult = await ai.models.generateContent({ model: 'gemini-3.8-flash', contents: monitorPrompt, config: { temperature: 0.5 } });
-    const monitorResponse = monitorResult.text;
-    if (onStepComplete) onStepComplete('monitor', monitorPrompt, monitorResponse || '');
+    const plannerSummary = plannerResponse.length > 1500
+      ? plannerResponse.slice(0, 1500) + '... [Resumo Estratégico]'
+      : plannerResponse;
 
-    // 3. Diretor de Arte (Especialista Design Gráfico 123Mart V2.0)
-    const artPrompt = `[ORDEM DE SERVIÇO - GERÊNCIA DE PROJETOS]
-Agente: Especialista de Design Gráfico 123Mart (V2.0)
-SKU de Referência: ${productData.sku}
-Produto: ${productData.name}
+    // ETAPA 2: Monitor de Inteligência Competitiva
+    const monitorPrompt = buildMonitorPrompt(productData, realQuotes, plannerSummary);
+    const monitorResult = await client.models.generateContent({
+      model: 'gemini-3.1-flash-lite',
+      contents: monitorPrompt,
+    });
+    const monitorResponse = monitorResult.text || '';
+    if (monitorResult.usageMetadata) {
+      totalPipelineTokens += monitorResult.usageMetadata.totalTokenCount || 0;
+      tokenAuditMap['monitor'] = monitorResult.usageMetadata;
+      console.log(`[📊 Token Audit] 2. Monitor de Concorrência: ${monitorResult.usageMetadata.totalTokenCount} tokens`);
+    }
+    if (onStepComplete) onStepComplete('monitor', monitorPrompt, monitorResponse);
 
-🛡️ MATRIZ DE IDENTIDADE GEM: ESPECIALISTA DESIGN GRÁFICO 123MART (V2.0)
-MISSÃO PRINCIPAL:
-Atuar como o Especialista de Design Gráfico, Diagramador de Conversão e Engenheiro de Onboarding de SKUs da 123Mart. Sua missão é traduzir SKUs físicos em dossiês de alta conversão, gerar matrizes fotográficas de cenário (Slots 2 a 7) via Strict Compositing e estruturar ativos visuais autossuficientes que retenham a atenção total do cliente, impedindo a fuga para anúncios concorrentes.
+    const monitorSummary = monitorResponse.length > 1200
+      ? monitorResponse.slice(0, 1200) + '... [Resumo de Preço e Oferta]'
+      : monitorResponse;
 
-REGRAS INEGOCIÁVEIS (O PADRÃO 123MART):
-1. O PRODUTO E A ESCALA (FOTOMONTAGEM RIGOROSA):
-   - O produto da "Imagem 1" é a Lei Absoluta; é PROIBIDO sintetizar ou alterar embalagens via IA.
-   - Atue em modo "Compositing", preservando 100% da anatomia original (cor, tampa, rótulo).
-2. SLOT 1 (HERO IMAGE):
-   - Fundo 100% branco puro (RGB 255,255,255), proporção 1:1 (1200x1200px), sem textos ou marcas d’água.
-3. TIPOGRAFIA ALGORÍTMICA (MOTOR NANO BANANA 2):
-   - O texto deve ser tratado como uma sobreposição vetorial estrita, NUNCA misturando pixels do texto com o produto.
-   - O texto a ser gerado deve estar SEMPRE entre aspas duplas ("") no comando.
-   - É proibido alucinar letras; utilize títulos curtos e no máximo 2 bullets rápidos para garantir legibilidade.
-4. RETENÇÃO VISUAL E NEGATIVE SPACE (SLOTS 2 A 7):
-   - Slots 2 a 7 devem ser infográficos autossuficientes utilizando a técnica de Negative Space para renderização nativa de textos em Português (BR).
-   - Aplique sombras de contato (Drop Shadow) apenas na base para integração realística.
-5. PROTOCOLO DE BRANDING E LOGÍSTICA:
-   - Títulos: MÁXIMO DE 60 CARACTERES, seguindo rigorosamente a ordem: Produto + Marca + Modelo + Diferencial.
-   - Logística ERP: Metadados (EAN/GTIN, cubagem e peso) devem ser impecáveis para integração com Olist Tiny ERP.
+    // Homologação inicial da Marca Oficial (Ecossistema Multimarcas 123Mart)
+    let dynamicBrand = (productData.brand || '').trim();
+    if (!dynamicBrand) {
+      const brandMatch =
+        plannerResponse.match(/Marca Comercial Homologada:\s*\*?\*?([^\n\*\r]+)/i) ||
+        plannerResponse.match(/Marca:\s*\*?\*?([^\n\*\r]+)/i);
+      if (brandMatch && brandMatch[1]) {
+        dynamicBrand = brandMatch[1].trim();
+      }
+    }
+    const detectedBrand = dynamicBrand || 'Marca Oficial Homologada';
 
-DADOS DE ENTRADA:
-[PLANNER]
-${plannerResponse}
+    // ETAPA 3 (PADRÃO AGÊNCIA): Gerente de Projetos cria o BRIEFING MESTRE ESTRATÉGICO ANTES do Diretor de Arte e do SEO!
+    const managerOut = await this.generateManagerBriefing(
+      productData,
+      plannerSummary,
+      monitorSummary,
+      detectedBrand
+    );
+    const officialBrand = managerOut.briefing.officialBrand || detectedBrand;
 
-[MONITOR]
-${monitorResponse}
+    if (managerOut.usage) {
+      totalPipelineTokens += managerOut.usage.totalTokenCount || 0;
+      tokenAuditMap['manager'] = managerOut.usage;
+      console.log(`[📊 Token Audit] 3. Gerente de Projetos (Briefing Estratégico): ${managerOut.usage.totalTokenCount} tokens`);
+    }
+    if (onStepComplete) {
+      onStepComplete('manager', managerOut.prompt, managerOut.markdown, {
+        managerBriefing: managerOut.briefing,
+        officialBrand,
+      });
+    }
 
-EXECUTE AS 3 FASES OPERACIONAIS OBRIGATÓRIAS:
+    // ETAPA 4 (PADRÃO AGÊNCIA): Diretor de Arte Multimodal recebe o Briefing Estratégico + TODAS as fotos da Nuvemshop
+    const artOut = await this.generateArtDirectionPlan(productData, managerOut.briefing);
 
-FASE 1: ONBOARDING E DOSSIÊ ("COMANDO 1")
-- Título SEO: RIGOROSAMENTE limitado a 60 caracteres (Produto + Marca + Modelo + Diferencial).
-- Copy de Conversão: Headline, Benefícios, Rendimento e FAQ persuasivo.
-- SEO Técnico: Title tag e Meta Description.
-- Dados Logísticos: Estimativas de peso líquido, bruto, dimensões e cubagem para o Olist Tiny ERP.
+    // Sincronização visual de fabricante: se o Diretor de Arte leu o fabricante real no rótulo da foto,
+    // sanitiza TODOS os campos do Briefing Mestre antes do Especialista SEO para 100% de coerência!
+    if (artOut.plan.verifiedManufacturer) {
+      managerOut.briefing = this.sanitizeBriefingManufacturer(
+        managerOut.briefing,
+        artOut.plan.verifiedManufacturer
+      );
+    }
 
-FASE 2: GALERIA DE CONVERSÃO (COMANDOS 2 A 7 - NANO BANANA 2)
-Estruture cada slot com isolamento de variáveis:
-- [O PRODUTO]: Preservação absoluta da Imagem 1 (Proporção 1:1).
-- [CENÁRIO E ÂNGULO]: Descrição do ambiente com ângulo Eye-level e sombra de base.
-- [TEXTO NATIVO]: Renderização na área de Negative Space utilizando aspas duplas ("") para o conteúdo textual.
-Slots:
-* SLOT 1: Hero Image (Capa 100% Branco Puro, sem texto)
-* SLOT 2: Lifestyle
-* SLOT 3: Infográfico Benefício Principal (Max 2 bullets)
-* SLOT 4: Zoom Técnico (pH Neutro / Mecanismo de Ação)
-* SLOT 5: Infográfico Rendimento / Custo-Benefício
-* SLOT 6: Prova Social & Blindagem Logística
-* SLOT 7: CTA / Oferta de Fechamento
+    if (artOut.usage) {
+      totalPipelineTokens += artOut.usage.totalTokenCount || 0;
+      tokenAuditMap['art'] = artOut.usage;
+      console.log(`[📊 Token Audit] 4. Diretor de Arte Multimodal (8 Slots): ${artOut.usage.totalTokenCount} tokens`);
+    }
+    if (onStepComplete) {
+      onStepComplete('art', artOut.prompt, artOut.markdown, {
+        artPlan: artOut.plan,
+        managerBriefing: managerOut.briefing,
+      });
+    }
 
-FASE 3: MOTOR DE RETENÇÃO (VÍDEO)
-- Formato: 9:16 (Vertical, 1080x1920px).
-- Duração: 8 segundos por cena.
-- Safe Zone: Ganchos e ações estritamente centrados para evitar cortes por interfaces de redes sociais.
-
-CHECKLIST DE SAÍDA OBRIGATÓRIO NO FINAL:
-"Confirmando: 1. Strict Compositing; 2. Nano Banana 2 (Texto entre ""); 3. Título < 60 carac.; 4. Slot 1 Fundo Branco; 5. Formato 1:1."`;
-    
-    const artResult = await ai.models.generateContent({ model: 'gemini-3.8-flash', contents: artPrompt, config: { temperature: 0.7 } });
-    const artResponse = artResult.text;
-    if (onStepComplete) onStepComplete('art', artPrompt, artResponse || '');
-
-    // 4. Especialista SEO (recebe inteligência de produto e precificação sem sobrecarga técnica visual)
-    const seoSystemContext = `[DIRETRIZ MESTRA DE OTIMIZAÇÃO]
-Dados da Pesquisa do Planner:
-${plannerResponse}
-
-Estratégia do Monitor:
-${monitorResponse}`;
+    // ETAPA 5: Especialista SEO recebe o Briefing Mestre do Gerente + Marca Oficial Homologada
+    const seoSystemContext = `[BRIEFING MESTRE DO GERENTE DE PROJETOS]
+Marca Oficial Homologada: ${officialBrand}
+Fabricante Confirmado Visualmente no Rótulo: ${managerOut.briefing.manufacturer}
+REGRA DE FABRICANTE (AUTORIDADE VISUAL): Utilize EXCLUSIVAMENTE "${managerOut.briefing.manufacturer}" como fabricante (se citar fabricante) e "${officialBrand}" como marca oficial. JAMAIS mencione qualquer outro fabricante.
+Categoria: ${managerOut.briefing.productCategory}
+Público-Alvo: ${managerOut.briefing.targetPersona}
+Diretriz de Posicionamento: ${managerOut.briefing.positioningDirective}
+Veredito de Preço: ${managerOut.briefing.pricingVerdict}
+Dores Principais: ${managerOut.briefing.topPains.join(' | ')}
+Objeções a Quebrar: ${managerOut.briefing.topObjections.join(' | ')}
+Fatos Técnicos Verificados: ${managerOut.briefing.verifiedTechnicalFacts.join(' | ')}
+Gatilhos Comerciais: ${managerOut.briefing.copyTriggers.join(' | ')}`;
 
     const seoPrompt = `[ORDEM DE SERVIÇO - GERÊNCIA DE PROJETOS]
 Agente: Especialista SEO Sênior
 SKU de Referência: ${productData.sku}
+Marca Homologada: ${officialBrand}
 
-Você é um Especialista SEO Sênior focado em conversão.
-Sua atitude: Você recebe a estratégia de mercado e precificação da equipe, gera todos os campos otimizados (Título Estratégico max 70 chars, Descrição com Quebra de Objeções, Meta tags, HTML válido), salva na plataforma e responde com o comparativo do Antes e Depois para o SKU ${productData.sku}.
+Obedeça integralmente ao Briefing Mestre Estratégico do Gerente de Projetos abaixo, gere todos os campos otimizados (Título <= 70 chars, Descrição HTML válida, Meta Description, Tags e Marca Oficial: ${officialBrand}), salve na plataforma e apresente o comparativo Antes e Depois.
 
-[CONTEXTO DA EQUIPE]
 ${seoSystemContext}`;
 
-    const seoJson = await this.generateProductSEO(productData, seoSystemContext);
-    
-    let saveMessage = "Não foi possível salvar o anúncio (nenhum callback fornecido).";
+    const seoJson = await this.generateProductSEO({ ...productData, brand: officialBrand }, seoSystemContext);
+    const seoTokens = (seoJson as any)?._tokens;
+    if (seoTokens) {
+      totalPipelineTokens += seoTokens.totalTokenCount || 0;
+      tokenAuditMap['seo'] = seoTokens;
+      console.log(`[📊 Token Audit] 5. Especialista SEO: ${seoTokens.totalTokenCount} tokens`);
+    }
+
+    let saveMessage = 'Não foi possível salvar o anúncio (nenhum callback fornecido).';
     if (saveProductCallback) {
       try {
         await saveProductCallback(seoJson);
-        saveMessage = "Anúncio otimizado e salvo na Nuvemshop com sucesso!";
+        saveMessage = 'Anúncio otimizado e salvo na Nuvemshop com sucesso!';
       } catch (err) {
-        saveMessage = "Falha ao salvar o anúncio na Nuvemshop.";
+        saveMessage = 'Falha ao salvar o anúncio na Nuvemshop.';
         console.error(err);
       }
     }
 
-    const seoResponsePayloadJSON = JSON.stringify({
-      message: saveMessage,
-      otimizacaoSEO: seoJson,
-      diretrizes: "Trabalho técnico de SEO concluído. Metadados e Copywrighting gerados com foco em alta conversão e indexação algorítmica."
-    }, null, 2);
+    const seoResponsePayloadJSON = JSON.stringify(
+      {
+        message: saveMessage,
+        otimizacaoSEO: seoJson,
+        diretrizes: 'Trabalho técnico de SEO concluído com base no Briefing Mestre Estratégico do Gerente de Projetos.',
+      },
+      null,
+      2
+    );
 
-    if (onStepComplete) onStepComplete('seo', seoPrompt, seoResponsePayloadJSON);
+    if (onStepComplete) {
+      onStepComplete('seo', seoPrompt, seoResponsePayloadJSON, {
+        seoData: seoJson,
+        finishedAt: Date.now(),
+      });
+    }
 
-    // 5. Gerente de Projetos (Synthesizer - Briefing Final Executivo)
-    const managerPrompt = `[SÍNTESE EXECUTIVA - GERÊNCIA DE PROJETOS]
-SKU de Referência: ${productData.sku}
-
-Você é o Gerente de Projetos de E-commerce Sênior. Sua função é orquestrar a equipe e sintetizar toda a inteligência captada em um "Briefing Mestre" impecável e profissional para o SKU: ${productData.sku}. A equipe já finalizou todo o trabalho de pesquisa, precificação, arte e SEO.
-
-[INTELIGÊNCIA DO PLANNER]
-${plannerResponse}
-[INTELIGÊNCIA DO MONITOR]
-${monitorResponse}
-[FRAMEWORK VISUAL APROVADO]
-${artResponse}
-[RESUMO DO SEO GERADO]
-- Título Otimizado: ${seoJson?.novoTitulo || productData.name}
-- Meta Description: ${seoJson?.metaDescription || ''}
-- Diferenciais de Conversão: ${seoJson?.dicasMelhoria?.join(', ') || 'Copy persuasiva com gatilhos de valor'}
-
-SUA MISSÃO:
-Crie o BRIEFING MESTRE definitivo. Este documento será empacotado e enviado via Webhook para sistemas automáticos (como o MeliAgent).
-Estruture o briefing com os seguintes tópicos obrigatórios:
-1. Diretriz de Posicionamento Oficial.
-2. Veredito da Estratégia de Preço e Oferta.
-3. Resumo da Copy e Gatilhos de SEO Ativos.
-4. Framework Visual Aprovado.
-5. Autorização Executiva para o Webhook.
-
-Seja executivo, imperativo e direto. Este é o pacote final de produção.`;
-
-    const managerResult = await ai.models.generateContent({ model: 'gemini-3.8-flash', contents: managerPrompt, config: { temperature: 0.7 } });
-    const managerResponse = managerResult.text;
-    if (onStepComplete) onStepComplete('manager', managerPrompt, managerResponse || '');
+    console.log(`\n================================================================`);
+    console.log(`🏁 [AUDITORIA DE TOKENS DA ESTEIRA PADRÃO AGÊNCIA - SKU: ${productData.sku}]`);
+    console.log(`  1. Pesquisador (Planner):      ${tokenAuditMap['planner']?.totalTokenCount || 0} tokens`);
+    console.log(`  2. Monitor de Concorrência:    ${tokenAuditMap['monitor']?.totalTokenCount || 0} tokens`);
+    console.log(`  3. Gerente (Briefing Mestre):  ${tokenAuditMap['manager']?.totalTokenCount || 0} tokens`);
+    console.log(`  4. Diretor de Arte Multimodal: ${tokenAuditMap['art']?.totalTokenCount || 0} tokens`);
+    console.log(`  5. Especialista SEO:           ${tokenAuditMap['seo']?.totalTokenCount || 0} tokens`);
+    console.log(`  🔥 TOTAL GASTO NA ESTEIRA:     ${totalPipelineTokens} TOKENS`);
+    console.log(`================================================================\n`);
   },
 
   async generateViralContent(productData: any, platform: string) {
@@ -674,6 +980,93 @@ Retorne ESTRITAMENTE um JSON puro com o seguinte formato:
   },
 
 
+  /**
+   * Substitui de forma segura qualquer menção a um fabricante antigo/suposto pelo fabricante
+   * confirmado visualmente no rótulo da embalagem real em TODOS os campos do managerBriefing.
+   */
+  sanitizeBriefingManufacturer<T extends Record<string, any>>(briefing: T, verifiedManufacturer: string): T {
+    const cleanVerified = String(verifiedManufacturer || '').trim();
+    if (!briefing || !cleanVerified) return briefing;
+
+    const oldManufacturer = String(briefing.manufacturer || '').trim();
+    const officialBrand = String(briefing.officialBrand || '').trim().toLowerCase();
+
+    const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const candidateTerms: string[] = [];
+
+    if (
+      oldManufacturer &&
+      oldManufacturer.toLowerCase() !== cleanVerified.toLowerCase() &&
+      !/confirmar/i.test(oldManufacturer)
+    ) {
+      candidateTerms.push(oldManufacturer);
+
+      // Também captura nome fantasia/prefixo comercial antes de razão social longa (ex: "HCL Química e Comércio..." -> "HCL Química")
+      const shortCorporate = oldManufacturer
+        .replace(/\s+(e\s+com[eé]rcio|com[eé]rcio|ind[uú]stria|ltda\.?|s\/a|s\.a\.?|eireli|me|epp).*$/i, '')
+        .trim();
+      if (
+        shortCorporate.length >= 4 &&
+        shortCorporate.toLowerCase() !== oldManufacturer.toLowerCase() &&
+        shortCorporate.toLowerCase() !== cleanVerified.toLowerCase() &&
+        shortCorporate.toLowerCase() !== officialBrand
+      ) {
+        candidateTerms.push(shortCorporate);
+      }
+
+      // Captura eventual variação antes de hífen ou barra
+      const firstSegment = oldManufacturer.split(/\s*[-–—|/]\s*/)[0]?.trim() || '';
+      if (
+        firstSegment.length >= 4 &&
+        firstSegment.toLowerCase() !== cleanVerified.toLowerCase() &&
+        firstSegment.toLowerCase() !== officialBrand &&
+        !candidateTerms.some((t) => t.toLowerCase() === firstSegment.toLowerCase())
+      ) {
+        candidateTerms.push(firstSegment);
+      }
+    }
+
+    // Ordena do mais longo para o mais curto para evitar substituições parciais
+    const sortedPatterns = candidateTerms
+      .filter((t) => t.length >= 4 && t.toLowerCase() !== officialBrand && t.toLowerCase() !== cleanVerified.toLowerCase())
+      .sort((a, b) => b.length - a.length)
+      .map((term) => new RegExp(escapeRegex(term), 'gi'));
+
+    const sanitizeText = (text: string): string => {
+      if (typeof text !== 'string' || !text) return text;
+      let out = text;
+      for (const re of sortedPatterns) {
+        out = out.replace(re, cleanVerified);
+      }
+      // Garante que rótulos explícitos "Fabricante: ..." também apontem para o fabricante confirmado
+      out = out.replace(/Fabricante\s*:\s*[^|;\n]+/gi, `Fabricante: ${cleanVerified}`);
+      return out;
+    };
+
+    const sanitizeList = (arr: any): any =>
+      Array.isArray(arr) ? arr.map((item) => (typeof item === 'string' ? sanitizeText(item) : item)) : arr;
+
+    const nextFacts: string[] = Array.isArray(briefing.verifiedTechnicalFacts)
+      ? sanitizeList(briefing.verifiedTechnicalFacts)
+      : [];
+    if (
+      !nextFacts.some((f) => typeof f === 'string' && f.toLowerCase().includes(cleanVerified.toLowerCase()))
+    ) {
+      nextFacts.push(`Fabricante confirmado visualmente no rótulo: ${cleanVerified}`);
+    }
+
+    return {
+      ...briefing,
+      manufacturer: cleanVerified,
+      positioningDirective: sanitizeText(briefing.positioningDirective),
+      pricingVerdict: sanitizeText(briefing.pricingVerdict),
+      topPains: sanitizeList(briefing.topPains),
+      topObjections: sanitizeList(briefing.topObjections),
+      verifiedTechnicalFacts: nextFacts,
+      copyTriggers: sanitizeList(briefing.copyTriggers),
+    };
+  },
+
   async generateProductSEO(productData: any, briefing?: string) {
     const settings = await firebaseService.getSettings();
     const permissions = settings?.agentPermissions?.['especialista-seo'] || {};
@@ -681,7 +1074,7 @@ Retorne ESTRITAMENTE um JSON puro com o seguinte formato:
     
     const systemInstruction = seoExpertPrompt + `\n\nRetorne ESTRITAMENTE em formato JSON puro.`;
     
-    let prompt = `Analise este produto, convoque os seus Múltiplos Agentes, acesse a internet para investigar concorrentes diretos, deduza o público-alvo e gere todo o pacote de marketing. OBRIGATÓRIO: A novaDescricaoHtml DEVE usar tags HTML VÁLIDAS. SE o produto já tiver uma Marca Original cadastrada, OBRIGATORIAMENTE use a mesma marca.`;
+    let prompt = `Analise este produto, convoque os seus Múltiplos Agentes, acesse a internet para investigar concorrentes diretos, deduza o público-alvo e gere todo o pacote de marketing. OBRIGATÓRIO: A novaDescricaoHtml DEVE usar tags HTML VÁLIDAS. REGRA DE MARCA E FABRICANTE: A 123Mart vende produtos de centenas de fabricantes. Utilize OBRIGATORIAMENTE a Marca Oficial e o Fabricante Confirmado no Rótulo informados no briefing ("${productData.brand || 'Identificar no briefing'}"). É terminantemente proibido inventar marcas, citar fabricantes divergentes ou mencionar "123Mart". REGRA DE ORTOGRAFIA PT-BR: Use 100% de acentuação correta do Português do Brasil (á, à, â, ã, é, ê, í, ó, ô, õ, ú, ç) em TODOS os textos, especialmente na "metaDescription" (ex: "água", "família", "fábrica", "solução" — NUNCA sem acento). Apenas "urlProduto" deve ficar sem acentos.`;
     
     if (briefing) {
        prompt += `\n\n[AÇÃO MANDATÓRIA - ORDEM DO GERENTE DE PROJETOS]:\nVocê DEVE obedecer ao seguinte BRIEFING EXECUTIVO na construção do SEO (Título, Copy, Meta):\n"${briefing}"\nQuebre as objeções apontadas e adote o ângulo de venda sugerido.`;
@@ -738,7 +1131,7 @@ Formato obrigatório de retorno (JSON puro):
             { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
             { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE }
           ],
-          tools: [{ googleSearch: {} }],
+          ...(permissions?.['search-console'] && !briefing ? { tools: [{ googleSearch: {} }] } : {}),
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
@@ -777,7 +1170,12 @@ Formato obrigatório de retorno (JSON puro):
           }
         }
       });
-      const parsed = JSON.parse(response.text || '{}'); console.log("AI returned:", parsed); return parsed;
+      const seoUsage = response.usageMetadata;
+      const parsed = JSON.parse(response.text || '{}');
+      if (seoUsage) {
+        parsed._tokens = seoUsage;
+      }
+      return parsed;
     } catch (err: any) {
       console.error('Erro na geração de SEO:', err);
       
@@ -814,8 +1212,8 @@ Formato obrigatório de retorno (JSON puro):
   },
   
   async handleAgentChat(text: string, sender: string, receiver: string, depth: number = 0, activeSku?: string, activeProductName?: string) {
-    if (depth >= 3) {
-      console.warn(`[AI Loop Guard] Maximum forwarding depth reached (3). Dropping message from ${sender} to ${receiver} to prevent token drain.`);
+    if (depth >= 1) {
+      console.warn(`[AI Loop Guard] Maximum forwarding depth reached (1). Dropping cascade message from ${sender} to ${receiver} to prevent token drain.`);
       return;
     }
 

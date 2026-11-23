@@ -32,12 +32,12 @@ export interface SkuPipeline {
 }
 
 const defaultStepsTemplate: PipelineStep[] = [
-  { id: '1', role: 'Gerente', actionTitle: 'Ver prompt', type: 'prompt', isCompleted: true, phase: 'Pesquisa' },
+  { id: '1', role: 'Gerente', actionTitle: 'Prompt Planner', type: 'prompt', isCompleted: true, phase: 'Pesquisa' },
   { id: '2', role: 'Planner', actionTitle: 'Relatório PDF', type: 'pdf', isCompleted: true, phase: 'Pesquisa' },
-  { id: '3', role: 'Gerente', actionTitle: 'Ver prompt', type: 'prompt', isCompleted: true, phase: 'Pesquisa' },
+  { id: '3', role: 'Gerente', actionTitle: 'Prompt Monitor', type: 'prompt', isCompleted: true, phase: 'Pesquisa' },
   { id: '4', role: 'Monitor', actionTitle: 'Relatório PDF', type: 'pdf', isCompleted: true, phase: 'Revisão' },
-  { id: '5', role: 'Gerente', actionTitle: 'Briefing PDF', type: 'pdf', isCompleted: true, phase: 'Revisão' },
-  { id: '6', role: 'Gerente', actionTitle: 'Ver prompt Arte', type: 'prompt', isCompleted: true, phase: 'Criação', artObligatory: true },
+  { id: '5', role: 'Gerente', actionTitle: 'Briefing Mestre PDF', type: 'pdf', isCompleted: true, phase: 'Revisão' },
+  { id: '6', role: 'Diret. Arte', actionTitle: 'Plano Visual 8 Slots', type: 'prompt', isCompleted: true, phase: 'Criação', artObligatory: true },
   { id: '7', role: 'Diret. Arte', actionTitle: 'Criativos PDF', type: 'pdf', isCompleted: true, phase: 'Criação', artObligatory: true },
   { id: '8', role: 'Esp. SEO', actionTitle: 'Copy/SEO PDF', type: 'pdf', isCompleted: true, phase: 'Aprovação' },
   { id: '9', role: 'Gerente', actionTitle: 'Notificações', type: 'webhook', isCompleted: true, phase: 'Salvamento' },

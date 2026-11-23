@@ -257,58 +257,78 @@ export const firebaseService = {
    * Salva o briefing de um SKU
    */
   async deleteSkuBriefing(sku: string) {
-    inMemoryBriefings = loadLocalData('briefings.json', inMemoryBriefings) || {};
-    if (inMemoryBriefings[sku]) {
-      delete inMemoryBriefings[sku];
-      saveLocalData('briefings.json', inMemoryBriefings);
-    }
-    try {
-      const db = getDb();
-      await db.collection('sku_briefings').doc(sku).delete();
-      console.log(`[Firebase] Briefing do SKU ${sku} deletado com sucesso.`);
-    } catch (e: any) {
-      console.warn('Firebase error in deleteSkuBriefing, using local copy:', e.message);
-    }
+    const runDelete = async () => {
+      inMemoryBriefings = loadLocalData('briefings.json', inMemoryBriefings) || {};
+      if (inMemoryBriefings[sku]) {
+        delete inMemoryBriefings[sku];
+        saveLocalData('briefings.json', inMemoryBriefings);
+      }
+      try {
+        const db = getDb();
+        await db.collection('sku_briefings').doc(sku).delete();
+        console.log(`[Firebase] Briefing do SKU ${sku} deletado com sucesso.`);
+      } catch (e: any) {
+        console.warn('Firebase error in deleteSkuBriefing, using local copy:', e.message);
+      }
+    };
+    const next = ((globalThis as any).__briefingsWriteQueue || Promise.resolve()).then(runDelete, runDelete);
+    (globalThis as any).__briefingsWriteQueue = next;
+    return next;
   },
 
   async saveSkuBriefing(sku: string, briefingData: any) {
-    inMemoryBriefings = loadLocalData('briefings.json', inMemoryBriefings) || {};
-    const safeData = briefingData || {};
-    const existing = inMemoryBriefings[sku] || {};
+    const runSave = async () => {
+      inMemoryBriefings = loadLocalData('briefings.json', inMemoryBriefings) || {};
+      const safeData = briefingData || {};
+      const existing = inMemoryBriefings[sku] || {};
 
-    const merged = {
-      ...existing,
-      ...safeData,
-      sku: sku || safeData.sku || existing.sku,
-      startedAt: safeData.startedAt || existing.startedAt || Date.now(),
-      steps: safeData.steps || existing.steps || [
-        { id: '1', role: 'Gerente', actionTitle: 'Ver prompt', type: 'prompt', isCompleted: true, phase: 'Pesquisa' },
-        { id: '2', role: 'Planner', actionTitle: 'Relatório PDF', type: 'pdf', isCompleted: true, phase: 'Pesquisa' },
-        { id: '3', role: 'Gerente', actionTitle: 'Ver prompt', type: 'prompt', isCompleted: true, phase: 'Pesquisa' },
-        { id: '4', role: 'Monitor', actionTitle: 'Relatório PDF', type: 'pdf', isCompleted: true, phase: 'Revisão' },
-        { id: '5', role: 'Gerente', actionTitle: 'Briefing PDF', type: 'pdf', isCompleted: true, phase: 'Revisão' },
-        { id: '6', role: 'Gerente', actionTitle: 'Ver prompt Arte', type: 'prompt', isCompleted: true, phase: 'Criação', artObligatory: true },
-        { id: '7', role: 'Diret. Arte', actionTitle: 'Criativos PDF', type: 'pdf', isCompleted: true, phase: 'Criação', artObligatory: true },
-        { id: '8', role: 'Esp. SEO', actionTitle: 'Copy/SEO PDF', type: 'pdf', isCompleted: true, phase: 'Aprovação' },
-        { id: '9', role: 'Gerente', actionTitle: 'Notificações', type: 'webhook', isCompleted: true, phase: 'Salvamento' }
-      ],
-      workflowSourceOfTruth: safeData.workflowSourceOfTruth ?? existing.workflowSourceOfTruth ?? true,
-      updatedAt: Date.now()
+      // Deep-merge seguro de generatedSlots para que gerações paralelas de slots NUNCA se sobrescrevam
+      const mergedGeneratedSlots =
+        existing.generatedSlots || safeData.generatedSlots
+          ? {
+              ...(existing.generatedSlots || {}),
+              ...(safeData.generatedSlots || {}),
+            }
+          : undefined;
+
+      const merged = {
+        ...existing,
+        ...safeData,
+        ...(mergedGeneratedSlots ? { generatedSlots: mergedGeneratedSlots } : {}),
+        sku: sku || safeData.sku || existing.sku,
+        startedAt: safeData.startedAt || existing.startedAt || Date.now(),
+        steps: safeData.steps || existing.steps || [
+          { id: '1', role: 'Gerente', actionTitle: 'Prompt Planner', type: 'prompt', isCompleted: true, phase: 'Pesquisa' },
+          { id: '2', role: 'Planner', actionTitle: 'Relatório PDF', type: 'pdf', isCompleted: true, phase: 'Pesquisa' },
+          { id: '3', role: 'Gerente', actionTitle: 'Prompt Monitor', type: 'prompt', isCompleted: true, phase: 'Pesquisa' },
+          { id: '4', role: 'Monitor', actionTitle: 'Relatório PDF', type: 'pdf', isCompleted: true, phase: 'Revisão' },
+          { id: '5', role: 'Gerente', actionTitle: 'Briefing Mestre PDF', type: 'pdf', isCompleted: true, phase: 'Revisão' },
+          { id: '6', role: 'Diret. Arte', actionTitle: 'Plano Visual 8 Slots', type: 'prompt', isCompleted: true, phase: 'Criação', artObligatory: true },
+          { id: '7', role: 'Diret. Arte', actionTitle: 'Criativos PDF', type: 'pdf', isCompleted: true, phase: 'Criação', artObligatory: true },
+          { id: '8', role: 'Esp. SEO', actionTitle: 'Copy/SEO PDF', type: 'pdf', isCompleted: true, phase: 'Aprovação' },
+          { id: '9', role: 'Gerente', actionTitle: 'Notificações', type: 'webhook', isCompleted: true, phase: 'Salvamento' }
+        ],
+        workflowSourceOfTruth: safeData.workflowSourceOfTruth ?? existing.workflowSourceOfTruth ?? true,
+        updatedAt: Date.now()
+      };
+
+      inMemoryBriefings[sku] = merged;
+      saveLocalData('briefings.json', inMemoryBriefings);
+
+      try {
+        const db = getDb();
+        await db.collection('sku_briefings').doc(sku).set({
+          ...merged,
+          updatedAt: FieldValue.serverTimestamp()
+        }, { merge: true });
+        console.log(`[Firebase] Briefing do SKU ${sku} salvo com sucesso.`);
+      } catch (e: any) {
+        console.warn('Firebase error in saveSkuBriefing, persisted locally:', e.message);
+      }
     };
-
-    inMemoryBriefings[sku] = merged;
-    saveLocalData('briefings.json', inMemoryBriefings);
-
-    try {
-      const db = getDb();
-      await db.collection('sku_briefings').doc(sku).set({
-        ...merged,
-        updatedAt: FieldValue.serverTimestamp()
-      }, { merge: true });
-      console.log(`[Firebase] Briefing do SKU ${sku} salvo com sucesso.`);
-    } catch (e: any) {
-      console.warn('Firebase error in saveSkuBriefing, persisted locally:', e.message);
-    }
+    const next = ((globalThis as any).__briefingsWriteQueue || Promise.resolve()).then(runSave, runSave);
+    (globalThis as any).__briefingsWriteQueue = next;
+    return next;
   },
 
   /**

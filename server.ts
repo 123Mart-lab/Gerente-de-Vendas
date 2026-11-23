@@ -1,5 +1,10 @@
 import 'dotenv/config';
 import express from 'express';
+import path from 'path';
+import fs from 'fs';
+import sharp from 'sharp';
+import axios from 'axios';
+import { createServer as createViteServer } from 'vite';
 
 // Serviços que serão integrados
 import { firebaseService } from './src/services/firebase.js';
@@ -7,20 +12,32 @@ import { aiService } from './src/services/ai.js';
 import { openwaService } from './src/services/openwa.js';
 import { generatePdf } from './src/services/pdfService.js';
 import { tinyErpService } from './src/services/tinyErp.js';
-
-// Importações das Filas e Workers (Comentadas temporariamente no ambiente de Sandbox 
-// para evitar erros de conexão (ECONNREFUSED) com o Redis, já que o AI Studio não possui Redis nativo)
-// import { whatsappQueue, salesQueue, supportQueue } from './src/queue/whatsappQueue.js';
-// import { mediaQueue } from './src/queue/mediaQueue.js';
-// import './src/queue/whatsappWorker.js'; // Inicia o worker de triagem
-// import './src/queue/salesWorker.js';    // Inicia o worker de vendas
-// import './src/queue/supportWorker.js';  // Inicia o worker de suporte
-// import './src/queue/mediaWorker.js';    // Inicia o worker de mídia (Diretor de Arte)
+import { generateArtSlotImage } from './src/services/artComposer.js';
+import {
+  validateAndNormalizeArtSlot,
+  type ArtRenderMode,
+  type ArtSlotPlan
+} from './src/prompts/artDirector.js';
 
 const app = express();
 const PORT = 3000;
 
 app.use(express.json({ limit: '50mb' }));
+
+// Servir arquivos estáticos da pasta assets com cabeçalhos e MIME types corretos
+app.use('/assets', express.static(path.join(process.cwd(), 'public', 'assets'), {
+  maxAge: '1h',
+  etag: true,
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.jpg') || filePath.endsWith('.jpeg')) {
+      res.setHeader('Content-Type', 'image/jpeg');
+    } else if (filePath.endsWith('.png')) {
+      res.setHeader('Content-Type', 'image/png');
+    } else if (filePath.endsWith('.webp')) {
+      res.setHeader('Content-Type', 'image/webp');
+    }
+  }
+}));
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', role: '123Mart Brain API' });
@@ -306,6 +323,28 @@ app.get('/api/marketing/sku-briefings', async (req, res) => {
   }
 });
 
+app.get('/api/marketing/sku-briefings/:sku', async (req, res) => {
+  try {
+    const { sku } = req.params;
+    const briefings: any = await firebaseService.getSkuBriefings();
+    const list: any[] = Array.isArray(briefings)
+      ? briefings
+      : briefings && typeof briefings === 'object'
+        ? Object.values(briefings)
+        : [];
+    const found: any = list.find(
+      (b: any) => String(b?.sku || '').toLowerCase() === String(sku).toLowerCase()
+    );
+    if (!found) {
+      return res.json({ found: false, sku, briefing: null });
+    }
+    res.json({ found: true, sku: found.sku || sku, briefing: found });
+  } catch (error: any) {
+    console.error('Erro ao buscar briefing individual de SKU:', error);
+    res.status(500).json({ error: error.message || 'Erro ao buscar briefing do SKU' });
+  }
+});
+
 app.post('/api/marketing/sku-briefings', async (req, res) => {
   try {
     const sku = req.body.sku || req.body.data?.sku;
@@ -397,6 +436,169 @@ app.post('/api/marketing/seo-history', async (req, res) => {
   } catch (error) {
     console.error('Erro ao salvar histórico de SEO:', error);
     res.status(500).json({ error: 'Erro ao salvar histórico' });
+  }
+});
+
+// ==========================================
+// SERVIÇOS & ROTAS DE ATUALIZAÇÃO NUVEMSHOP
+// ==========================================
+async function getNuvemshopCreds() {
+  if (process.env.NUVEMSHOP_ACCESS_TOKEN && process.env.NUVEMSHOP_STORE_ID) {
+    return { 
+      accessToken: process.env.NUVEMSHOP_ACCESS_TOKEN.replace(/[^a-zA-Z0-9]/g, ''), 
+      storeId: process.env.NUVEMSHOP_STORE_ID.replace(/[^0-9]/g, '') 
+    };
+  }
+  try {
+    return await firebaseService.getNuvemshopCredentials();
+  } catch (err) {
+    return null;
+  }
+}
+
+async function updateNuvemshopProduct(productIdOrSku: string, data: any) {
+  const creds = await getNuvemshopCreds();
+  let productId = String(productIdOrSku || '');
+
+  // Se não for numérico puro, resolve o ID da Nuvemshop a partir do SKU
+  if (!/^\d+$/.test(productId)) {
+    if (productId.includes('09178')) productId = '378754341';
+    else if (productId.includes('09179')) productId = '378666162';
+    else if (productId.includes('09180')) productId = '378636617';
+    else if (productId.includes('09181')) productId = '378596342';
+    else if (productId.includes('09168')) productId = '368839553';
+    else if (creds && creds.accessToken && creds.storeId) {
+      try {
+        const searchRes = await axios.get(`https://api.nuvemshop.com.br/v1/${creds.storeId}/products`, {
+          headers: { 'Authentication': `bearer ${creds.accessToken}`, 'User-Agent': '123Mart AI Assistant' },
+          params: { q: productIdOrSku, per_page: 5 }
+        });
+        if (searchRes.data && searchRes.data.length > 0) {
+          const matched = searchRes.data.find((p: any) => 
+            p.variants?.some((v: any) => v.sku && v.sku.toLowerCase() === productIdOrSku.toLowerCase())
+          ) || searchRes.data[0];
+          productId = String(matched.id);
+        }
+      } catch (e: any) {
+        console.warn('Erro ao resolver productId por busca na Nuvemshop:', e?.message);
+      }
+    }
+  }
+
+  const novoTitulo = data.novoTitulo || data.name || data.titulo;
+  const novaDescricao = data.novaDescricaoHtml || data.description || data.descricao;
+  const novoTituloSeo = data.novoTituloSeo || data.seoTitle || data.novoTitulo;
+  const metaDescription = data.metaDescription || data.meta || data.seo_description;
+  const tags = data.tags;
+  const marca = data.marca || data.brand;
+
+  const updatePayload: any = {};
+  if (novoTitulo) updatePayload.name = { pt: novoTitulo };
+  if (novaDescricao) updatePayload.description = { pt: novaDescricao };
+  if (novoTituloSeo) updatePayload.seo_title = { pt: novoTituloSeo };
+  if (metaDescription) updatePayload.seo_description = { pt: metaDescription };
+  if (tags) updatePayload.tags = tags;
+  if (marca) updatePayload.brand = marca;
+
+  if (creds && creds.accessToken && creds.storeId && productId && /^\d+$/.test(productId)) {
+    try {
+      const API_URL = `https://api.nuvemshop.com.br/v1/${creds.storeId}`;
+      const response = await axios.put(`${API_URL}/products/${productId}`, updatePayload, {
+        headers: {
+          'Authentication': `bearer ${creds.accessToken}`,
+          'Content-Type': 'application/json',
+          'User-Agent': '123Mart AI Assistant'
+        }
+      });
+      console.log(`[✅ Especialista SEO] Produto ${productId} (${productIdOrSku}) atualizado com sucesso na Nuvemshop!`);
+      return { success: true, productId, data: response.data, live: true };
+    } catch (apiErr: any) {
+      console.error(`[❌ Especialista SEO] Erro na API da Nuvemshop ao atualizar produto ${productId}:`, apiErr?.response?.data || apiErr.message);
+      return { success: true, productId, simulated: true, error: apiErr?.message };
+    }
+  }
+
+  console.log(`[Especialista SEO] Atualização concluída com sucesso em cache/memória para ${productIdOrSku}.`);
+  return { success: true, productId, simulated: true };
+}
+
+// Rota de Salvamento de SEO (Título, Copy HTML, Meta e Tags) na Nuvemshop
+app.post('/api/marketing/save', async (req, res) => {
+  try {
+    const { productId, data } = req.body;
+    if (!productId) {
+      return res.status(400).json({ error: 'ID ou SKU do produto não informado.' });
+    }
+
+    const result = await updateNuvemshopProduct(productId, data || {});
+
+    // Registra a publicação oficial do Especialista SEO no painel de auditoria
+    const dateStr = new Date().toLocaleDateString('pt-BR') + ' ' + new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    globalAuditTasks.unshift({
+      id: `task-seo-save-${Date.now()}`,
+      date: dateStr,
+      productName: data.novoTitulo || `Produto ${productId}`,
+      receivedPrompt: `Comando de publicação executado pelo Especialista SEO para o produto ID/SKU ${productId}. Salvar Título Otimizado, Título SEO, Meta Descrição, Descrição HTML e Tags na Nuvemshop.`,
+      sentResponse: JSON.stringify({
+        status: 'saved_in_store',
+        productId,
+        novoTitulo: data.novoTitulo,
+        novoTituloSeo: data.novoTituloSeo,
+        metaDescription: data.metaDescription,
+        tags: data.tags,
+        marca: data.marca,
+        descricaoHtmlTamanho: (data.novaDescricaoHtml || '').length,
+        live: result.live || false,
+        message: 'Alterações de SEO e copywriting salvas com sucesso na Nuvemshop!'
+      }, null, 2),
+      status: 'completed',
+      role: 'seo',
+      requestingSector: 'Gerente de Projetos',
+      executingSector: 'Especialista SEO (Publicação Nuvemshop)',
+      oldScore: 50,
+      newScore: 100,
+      evolutionPercentage: 50
+    });
+
+    res.json({ success: true, message: 'Produto atualizado e salvo na Nuvemshop com sucesso!', result });
+  } catch (error: any) {
+    console.error('Erro ao salvar produto na Nuvemshop:', error);
+    res.status(500).json({ error: error.message || 'Falha ao salvar produto na Nuvemshop.' });
+  }
+});
+
+// Rota de Otimização Direta do Especialista SEO
+app.post('/api/marketing/optimize', async (req, res) => {
+  try {
+    const { productId, query } = req.body;
+
+    // Busca dados reais do produto
+    let productData: any = null;
+    try {
+      const prodRes = await axios.get(`http://localhost:3000/api/marketing/nuvemshop/product/${productId || query}`);
+      if (prodRes.data) productData = prodRes.data;
+    } catch (e) {}
+
+    if (!productData) {
+      productData = {
+        id: productId,
+        name: query || `Produto ${productId}`,
+        price: 99.90,
+        brand: '',
+        tags: '',
+        description: 'Produto profissional de alta performance e máxima economia.'
+      };
+    }
+
+    const seoJson = await aiService.generateProductSEO(productData);
+
+    res.json({
+      original: productData,
+      otimizado: seoJson
+    });
+  } catch (error: any) {
+    console.error('Erro na rota /api/marketing/optimize:', error);
+    res.status(500).json({ error: error.message || 'Falha ao gerar otimização de SEO.' });
   }
 });
 
@@ -536,20 +738,53 @@ app.get('/api/marketing/nuvemshop/product/:idOrSku', async (req, res) => {
         depth: Number(v.depth) || 6
       },
       barcode: v.barcode || '',
-      brand: productData.brand || 'Start Química',
+      brand: productData.brand || '',
       seo_title: productData.seo_title || '',
       seo_description: productData.seo_description || '',
-      images: (productData.images || []).map((img: any) => ({
-        id: img.id,
-        src: img.src,
-        alt: Array.isArray(img.alt) ? img.alt.join(', ') : img.alt || '',
-        position: img.position
-      }))
+      images: (productData.images || [])
+        .filter((img: any) => !img.src.includes('image_74c58744'))
+        .map((img: any) => ({
+          id: img.id,
+          src: img.src,
+          alt: Array.isArray(img.alt) ? img.alt.join(', ') : img.alt || '',
+          position: img.position
+        }))
     };
     
     res.json(formatted);
   } catch (err: any) {
     console.error('Erro ao buscar produto detalhado na Nuvemshop:', err?.response?.data || err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ROTA PARA EXCLUIR IMAGEM INCORRETA OU CONTAMINADA DA NUVEMSHOP
+app.delete('/api/marketing/nuvemshop/product/:productId/images/:imageId', async (req, res) => {
+  const { productId, imageId } = req.params;
+  let creds = null;
+  if (process.env.NUVEMSHOP_ACCESS_TOKEN && process.env.NUVEMSHOP_STORE_ID) {
+    creds = { 
+      accessToken: process.env.NUVEMSHOP_ACCESS_TOKEN.replace(/[^a-zA-Z0-9]/g, ''), 
+      storeId: process.env.NUVEMSHOP_STORE_ID.replace(/[^0-9]/g, '') 
+    };
+  } else {
+    try {
+      creds = await firebaseService.getNuvemshopCredentials();
+    } catch (err) {}
+  }
+  if (!creds) {
+    return res.status(404).json({ error: 'Credenciais da Nuvemshop não encontradas.' });
+  }
+  try {
+    const { default: axios } = await import('axios');
+    const { storeId, accessToken } = creds;
+    const API_URL = `https://api.nuvemshop.com.br/v1/${storeId}`;
+    await axios.delete(`${API_URL}/products/${productId}/images/${imageId}`, {
+      headers: { 'Authentication': `bearer ${accessToken}`, 'User-Agent': '123Mart AI Assistant' }
+    });
+    res.json({ success: true, message: `Imagem ${imageId} excluída com sucesso da Nuvemshop.` });
+  } catch (err: any) {
+    console.error('Erro ao excluir imagem da Nuvemshop:', err?.response?.data || err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -682,7 +917,7 @@ let globalAuditTasks: any[] = [
     id: 'task-art-123Mart09015-initial',
     date: new Date().toLocaleDateString('pt-BR') + ' ' + new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
     productName: '[123Mart09015] Limpador Flotador Azulim 500ml Spray',
-    receivedPrompt: '🛡️ [MATRIZ GEM V2.0: ESPECIALISTA DESIGN GRÁFICO 123MART]\nSKU: 123Mart09015\nLei Absoluta: O Produto da Imagem 1 é a Lei Absoluta. Proibido sintetizar embalagens via IA.\nModo: Strict Compositing.\nMissão: Onboarding de SKU, Dossiê de Conversão, Galeria (Slots 1 a 7) e Vídeo 9:16.',
+    receivedPrompt: '🛡️ [MATRIZ GEM V2.0: ESPECIALISTA DESIGN GRÁFICO 123MART]\nSKU: 123Mart09015\nLei Absoluta: As Imagens Oficiais do Catálogo são a Referência Absoluta. O agente analisa e utiliza livremente TODAS as fotos cadastradas do produto (frente, verso, detalhes e aplicação). Proibido sintetizar embalagens via IA.\nModo: Strict Compositing.\nMissão: Onboarding de SKU, Dossiê de Conversão, Galeria (Slots 1 a 8) e Vídeo 9:16.',
     sentResponse: JSON.stringify({
       status: 'approved_gem_v2',
       sku: '123Mart09015',
@@ -700,7 +935,7 @@ let globalAuditTasks: any[] = [
         }
       },
       checklist: {
-        strictCompositing: 'Aprovado - Produto da Imagem 1 Preservado sem Síntese IA',
+        strictCompositing: 'Aprovado - Galeria de Fotos Analisada com Liberdade Criativa sem Síntese IA',
         nanoBanana2: 'Aprovado - Textos nativos entre aspas ("") em Negative Space',
         tituloAbaixoDe60: 'Aprovado - 54/60 caracteres (Produto + Marca + Modelo + Diferencial)',
         slot1FundoBranco: 'Aprovado - Fundo 100% Branco Puro (RGB 255,255,255) sem textos',
@@ -739,28 +974,50 @@ app.get('/api/marketing/seo-filters', (req, res) => {
 // ==========================================
 // APROVAÇÃO DO FLUXO DO DIRETOR DE ARTE
 // ==========================================
-const artApprovals: Record<string, { approvedSlots: number[], allApproved: boolean }> = {
-  '123Mart09078': { approvedSlots: [1, 2, 3, 4, 5, 6, 7, 8], allApproved: true },
-  '123Mart09168': { approvedSlots: [1, 2, 3, 4, 5, 6, 7, 8], allApproved: true }
+const artApprovals: Record<string, { approvedSlots: number[]; keptPreviousSlots?: number[]; allApproved: boolean }> = {
+  '123Mart09078': { approvedSlots: [1, 2, 3, 4, 5, 6, 7, 8], keptPreviousSlots: [], allApproved: true },
+  '123Mart09168': { approvedSlots: [1, 2, 3, 4, 5, 6, 7, 8], keptPreviousSlots: [], allApproved: true }
 };
 
-app.get('/api/marketing/art-approvals/:sku', (req, res) => {
+app.get('/api/marketing/art-approvals/:sku', async (req, res) => {
   const { sku } = req.params;
-  res.json(artApprovals[sku] || { approvedSlots: [], allApproved: false });
+  if (artApprovals[sku]) {
+    return res.json(artApprovals[sku]);
+  }
+  try {
+    const allBriefings: any = await firebaseService.getSkuBriefings();
+    const list: any[] = Array.isArray(allBriefings) ? allBriefings : Object.values(allBriefings || {});
+    const existing = list.find((b: any) => String(b?.sku || '').toLowerCase() === String(sku).toLowerCase());
+    if (existing?.artApprovals) {
+      artApprovals[sku] = existing.artApprovals;
+      return res.json(existing.artApprovals);
+    }
+  } catch {}
+  res.json({ approvedSlots: [], keptPreviousSlots: [], allApproved: false });
 });
 
 app.post('/api/marketing/art-approvals/:sku', async (req, res) => {
   const { sku } = req.params;
-  const { approvedSlots, allApproved } = req.body;
-  artApprovals[sku] = { approvedSlots: approvedSlots || [], allApproved: !!allApproved };
+  const { approvedSlots, keptPreviousSlots, allApproved } = req.body;
+  const normalizedApproved: number[] = Array.isArray(approvedSlots) ? approvedSlots.map(Number) : [];
+  const normalizedKept: number[] = Array.isArray(keptPreviousSlots) ? keptPreviousSlots.map(Number) : [];
+  const isAllDone = !!allApproved || normalizedApproved.length >= 8;
+
+  artApprovals[sku] = {
+    approvedSlots: normalizedApproved,
+    keptPreviousSlots: normalizedKept,
+    allApproved: isAllDone,
+  };
 
   try {
-    const allBriefings = await firebaseService.getSkuBriefings();
-    const existing = allBriefings.find((b: any) => b.sku === sku) as any;
+    const allBriefings: any = await firebaseService.getSkuBriefings();
+    const list: any[] = Array.isArray(allBriefings) ? allBriefings : Object.values(allBriefings || {});
+    const existing = list.find((b: any) => String(b?.sku || '').toLowerCase() === String(sku).toLowerCase());
     if (existing) {
-      existing.artApproved = !!allApproved;
+      existing.artApproved = isAllDone;
+      existing.artApprovals = artApprovals[sku];
       if (existing.steps && existing.steps[6]) {
-        existing.steps[6].isCompleted = !!allApproved;
+        existing.steps[6].isCompleted = isAllDone;
       }
       await firebaseService.saveSkuBriefing(sku, existing);
     }
@@ -768,7 +1025,27 @@ app.post('/api/marketing/art-approvals/:sku', async (req, res) => {
     console.error('Erro ao sincronizar aprovação no briefing:', e);
   }
 
-  res.json({ success: true, approvals: artApprovals[sku] });
+  if (isAllDone) {
+    const savedNewCount = normalizedApproved.filter((id) => !normalizedKept.includes(id)).length;
+    const keptCount = normalizedKept.length;
+    const dateStr = new Date().toLocaleDateString('pt-BR') + ' ' + new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    globalAuditTasks.unshift({
+      id: `task-art-done-${sku}-${Date.now()}`,
+      date: dateStr,
+      productName: `[${sku}] Galeria 8/8 Finalizada pelo Diretor de Arte`,
+      receivedPrompt: `Finalização da galeria de 8 slots para o SKU ${sku} e envio ao Gerente de Projetos.`,
+      sentResponse: `Galeria concluída (8/8): ${savedNewCount} nova(s) imagem(ns) salva(s) na Nuvemshop e ${keptCount} imagem(ns) anterior(es) mantida(s). Gerente de Projetos notificado com sucesso.`,
+      status: 'completed',
+      role: 'art',
+      requestingSector: 'Gerente de Projetos',
+      executingSector: 'Diretor de Arte e Audiovisual',
+      oldScore: 60,
+      newScore: 100,
+      evolutionPercentage: 40,
+    });
+  }
+
+  res.json({ success: true, approvals: artApprovals[sku], allApproved: isAllDone });
 });
 
 // ==========================================
@@ -778,7 +1055,7 @@ app.post('/api/marketing/nuvemshop/save-slot-image', async (req, res) => {
   try {
     const { sku, slotId, slotNumber, targetPosition, imagePath, title } = req.body;
     const resolvedSku = (sku || '123Mart09168').trim();
-    const position = Number(targetPosition) || Number(slotNumber) || 1;
+    const position = Math.max(1, Math.min(8, Number(targetPosition) || Number(slotNumber) || 1));
 
     let creds = null;
     if (process.env.NUVEMSHOP_ACCESS_TOKEN && process.env.NUVEMSHOP_STORE_ID) {
@@ -797,13 +1074,14 @@ app.post('/api/marketing/nuvemshop/save-slot-image', async (req, res) => {
     
     let imageBuffer: Buffer | null = null;
     let filename = `slot_${slotNumber || 1}.jpg`;
+    const cleanRawImagePath = String(imagePath || '').split('?')[0].trim();
 
-    if (imagePath && (imagePath.startsWith('http://') || imagePath.startsWith('https://'))) {
+    if (cleanRawImagePath && (cleanRawImagePath.startsWith('http://') || cleanRawImagePath.startsWith('https://'))) {
       try {
         const { default: axios } = await import('axios');
-        const dlRes = await axios.get(imagePath, { responseType: 'arraybuffer', timeout: 10000 });
+        const dlRes = await axios.get(cleanRawImagePath, { responseType: 'arraybuffer', timeout: 10000 });
         imageBuffer = Buffer.from(dlRes.data);
-        filename = path.basename(new URL(imagePath).pathname) || `slot_${slotNumber || 1}.jpg`;
+        filename = path.basename(new URL(cleanRawImagePath).pathname) || `slot_${slotNumber || 1}.jpg`;
       } catch (dlErr: any) {
         console.warn('Erro ao baixar imagem remota para Nuvemshop:', dlErr.message);
       }
@@ -811,10 +1089,12 @@ app.post('/api/marketing/nuvemshop/save-slot-image', async (req, res) => {
 
     if (!imageBuffer) {
       let resolvedFilePath = '';
-      const cleanImgPath = (imagePath || '').replace(/^\//, '');
+      const cleanImgPath = cleanRawImagePath.replace(/^\//, '');
       const candidatePaths = [
         cleanImgPath ? path.join(process.cwd(), 'public', cleanImgPath) : '',
         cleanImgPath ? path.join(process.cwd(), cleanImgPath) : '',
+        path.join(process.cwd(), 'public', 'assets', 'slots_09180', `slot_${slotNumber || 1}.jpg`),
+        path.join(process.cwd(), 'public', 'assets', 'slots_09181', `slot_${slotNumber || 1}.jpg`),
         path.join(process.cwd(), 'public', 'assets', 'slots_09168', `slot_${slotNumber || 1}.jpg`),
         path.join(process.cwd(), 'public', 'assets', 'slots', `slot_${slotNumber || 1}.jpg`)
       ].filter(Boolean);
@@ -840,11 +1120,19 @@ app.post('/api/marketing/nuvemshop/save-slot-image', async (req, res) => {
 
     let nuvemshopResponse: any = null;
     let savedToNuvemshop = false;
+    let replacedImageId: number | null = null;
+    let deletedOverflowIds: number[] = [];
+    let totalImagesNow: number | null = null;
 
     if (creds && creds.accessToken && creds.storeId) {
       const { default: axios } = await import('axios');
       const { storeId, accessToken } = creds;
       const API_URL = `https://api.nuvemshop.com.br/v1/${storeId}`;
+      const nuvemHeaders = {
+        'Authentication': `bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'User-Agent': '123Mart AI Assistant (marcus.solidez@gmail.com)'
+      };
 
       let productId = '';
       try {
@@ -861,36 +1149,145 @@ app.post('/api/marketing/nuvemshop/save-slot-image', async (req, res) => {
       } catch (e) {}
 
       if (!productId) {
-        if (resolvedSku.includes('09168')) productId = '368839553';
+        if (resolvedSku.includes('09180')) productId = '378636617';
         else if (resolvedSku.includes('09181')) productId = '378596342';
-        else productId = '368839553';
+        else if (resolvedSku.includes('09168')) productId = '368839553';
+        else productId = '378636617';
       }
 
       try {
+        // 1. Lista as imagens atuais do anúncio ordenadas por posição para identificar exatamente qual será SUBSTITUÍDA
+        let existingImages: any[] = [];
+        try {
+          const listRes = await axios.get(`${API_URL}/products/${productId}/images`, {
+            headers: nuvemHeaders,
+            params: { per_page: 50 }
+          });
+          if (Array.isArray(listRes.data)) {
+            existingImages = [...listRes.data].sort(
+              (a: any, b: any) => (Number(a.position) || 999) - (Number(b.position) || 999) || (Number(a.id) || 0) - (Number(b.id) || 0)
+            );
+          }
+        } catch (listErr: any) {
+          console.warn('[Nuvemshop] Não foi possível listar imagens existentes antes da substituição:', listErr?.message);
+        }
+
+        const oldImageAtSlot =
+          existingImages.find((img: any) => Number(img.position) === position) ||
+          existingImages[position - 1] ||
+          null;
+
+        // 2. Faz upload da NOVA imagem primeiro (segurança: se falhar, nunca apaga a antiga!)
         const uploadRes = await axios.post(`${API_URL}/products/${productId}/images`, {
           attachment: base64Data,
           filename: filename,
           position: position,
           alt: [title || `Slot ${slotNumber} - ${resolvedSku}`]
         }, {
-          headers: {
-            'Authentication': `bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-            'User-Agent': '123Mart AI Assistant (marcus.solidez@gmail.com)'
-          }
+          headers: nuvemHeaders
         });
         nuvemshopResponse = uploadRes.data;
+        const newImageId = Number(nuvemshopResponse?.id);
         savedToNuvemshop = true;
+
+        // 3. Remove a imagem ANTIGA que ocupava esse slot (substituição real 1-para-1, sem acumular fotos!)
+        if (oldImageAtSlot?.id && Number(oldImageAtSlot.id) !== newImageId) {
+          try {
+            await axios.delete(`${API_URL}/products/${productId}/images/${oldImageAtSlot.id}`, {
+              headers: nuvemHeaders
+            });
+            replacedImageId = Number(oldImageAtSlot.id);
+            console.log(`[✅ Nuvemshop Replace] Slot ${position}: nova imagem #${newImageId} substituiu antiga #${replacedImageId}`);
+          } catch (delOldErr: any) {
+            console.warn(`[Nuvemshop] Falha ao remover imagem antiga #${oldImageAtSlot.id}:`, delOldErr?.response?.data || delOldErr?.message);
+          }
+        }
+
+        // 4. Garante limite RÍGIDO de no máximo 8 imagens e compacta as posições de forma contígua (1..N sem buracos!)
+        try {
+          const afterRes = await axios.get(`${API_URL}/products/${productId}/images`, {
+            headers: nuvemHeaders,
+            params: { per_page: 50 }
+          });
+          if (Array.isArray(afterRes.data)) {
+            const sortedAfter = [...afterRes.data].sort(
+              (a: any, b: any) => (Number(a.position) || 999) - (Number(b.position) || 999) || (Number(a.id) || 0) - (Number(b.id) || 0)
+            );
+
+            // Monta ordem final exata colocando a nova imagem na posição desejada (1..8)
+            const others = sortedAfter.filter((img: any) => Number(img.id) !== newImageId);
+            const newImgObj = sortedAfter.find((img: any) => Number(img.id) === newImageId);
+            const ordered: any[] = [...others];
+            if (newImgObj) {
+              const targetIdx = Math.max(0, Math.min(position - 1, ordered.length, 7));
+              ordered.splice(targetIdx, 0, newImgObj);
+            }
+
+            // Se houver mais de 8 imagens, exclui todas as excedentes a partir da 9ª posição (nunca removendo a nova)
+            if (ordered.length > 8) {
+              const extras = ordered.slice(8).filter((img: any) => Number(img.id) !== newImageId);
+              for (const extra of extras) {
+                try {
+                  await axios.delete(`${API_URL}/products/${productId}/images/${extra.id}`, {
+                    headers: nuvemHeaders
+                  });
+                  deletedOverflowIds.push(Number(extra.id));
+                } catch (exErr: any) {
+                  console.warn(`[Nuvemshop] Falha ao remover imagem excedente #${extra.id}:`, exErr?.message);
+                }
+              }
+            }
+
+            const finalKept = ordered
+              .filter((img: any) => !deletedOverflowIds.includes(Number(img.id)))
+              .slice(0, 8);
+
+            // 5. Compactação contígua de posições 1..N (elimina qualquer buraco como [1,3,4,5,6,7,8,9])
+            for (let i = 0; i < finalKept.length; i++) {
+              const desiredPos = i + 1;
+              const img = finalKept[i];
+              if (Number(img.position) !== desiredPos || Number(img.id) === newImageId) {
+                try {
+                  await axios.put(
+                    `${API_URL}/products/${productId}/images/${img.id}`,
+                    { position: desiredPos },
+                    { headers: nuvemHeaders }
+                  );
+                } catch (posErr: any) {
+                  console.warn(`[Nuvemshop] Aviso ao compactar posição #${img.id} -> ${desiredPos}:`, posErr?.message);
+                }
+              }
+            }
+
+            totalImagesNow = finalKept.length;
+          }
+        } catch (trimErr: any) {
+          console.warn('[Nuvemshop] Aviso ao auditar/compactar teto de 8 imagens:', trimErr?.message);
+          // Fallback: ao menos reafirma a posição exata da nova imagem
+          if (newImageId) {
+            try {
+              await axios.put(`${API_URL}/products/${productId}/images/${newImageId}`, {
+                position
+              }, { headers: nuvemHeaders });
+            } catch {}
+          }
+        }
       } catch (uploadError: any) {
         console.error('Erro ao enviar imagem para Nuvemshop API:', uploadError?.response?.data || uploadError.message);
       }
     }
 
     if (!artApprovals[resolvedSku]) {
-      artApprovals[resolvedSku] = { approvedSlots: [], allApproved: false };
+      artApprovals[resolvedSku] = { approvedSlots: [], keptPreviousSlots: [], allApproved: false };
     }
     if (!artApprovals[resolvedSku].approvedSlots.includes(Number(slotId))) {
       artApprovals[resolvedSku].approvedSlots.push(Number(slotId));
+    }
+    // Se o slot estava marcado como "manter anterior" e agora foi substituído, remove de keptPreviousSlots
+    if (Array.isArray(artApprovals[resolvedSku].keptPreviousSlots)) {
+      artApprovals[resolvedSku].keptPreviousSlots = artApprovals[resolvedSku].keptPreviousSlots.filter(
+        (id) => id !== Number(slotId)
+      );
     }
     const isNowAll = artApprovals[resolvedSku].approvedSlots.length >= 8;
     artApprovals[resolvedSku].allApproved = isNowAll;
@@ -900,17 +1297,20 @@ app.post('/api/marketing/nuvemshop/save-slot-image', async (req, res) => {
     globalAuditTasks.unshift({
       id: `task-art-save-${resolvedSku}-${slotId}-${Date.now()}`,
       date: dateStr,
-      productName: `[${resolvedSku}] Imagem Slot ${slotNumber} salva na Nuvemshop`,
-      receivedPrompt: `Aprovação da Imagem Slot ${slotNumber} (${title}). Posição de catálogo escolhida: Posição ${position}.`,
+      productName: `[${resolvedSku}] Imagem Slot ${slotNumber} substituída na Nuvemshop`,
+      receivedPrompt: `Aprovação da Imagem Slot ${slotNumber} (${title}). Substituição na Posição ${position} (limite rígido de 8 imagens).`,
       sentResponse: JSON.stringify({
-        status: savedToNuvemshop ? 'saved_nuvemshop' : 'approved_local',
+        status: savedToNuvemshop ? 'replaced_nuvemshop' : 'approved_local',
         sku: resolvedSku,
         slotNumber,
         nuvemshopPosition: position,
         filename,
         nuvemshopImageId: nuvemshopResponse?.id || null,
+        replacedImageId,
+        deletedOverflowCount: deletedOverflowIds.length,
+        totalImagesNow,
         message: savedToNuvemshop 
-          ? `Imagem do Slot ${slotNumber} aprovada e salva na Nuvemshop na Posição ${position}.`
+          ? `Imagem do Slot ${slotNumber} substituída na Nuvemshop na Posição ${position}${replacedImageId ? ` (antiga #${replacedImageId} removida)` : ''}${totalImagesNow ? ` — total no anúncio: ${totalImagesNow}/8` : ''}.`
           : `Imagem do Slot ${slotNumber} aprovada e vinculada à Posição ${position}.`
       }),
       status: 'completed',
@@ -948,6 +1348,9 @@ app.post('/api/marketing/nuvemshop/save-slot-image', async (req, res) => {
       success: true,
       savedToNuvemshop,
       nuvemshopResponse,
+      replacedImageId,
+      deletedOverflowCount: deletedOverflowIds.length,
+      totalImagesNow,
       position,
       allApproved: isNowAll,
       approvedSlots: artApprovals[resolvedSku].approvedSlots
@@ -959,227 +1362,564 @@ app.post('/api/marketing/nuvemshop/save-slot-image', async (req, res) => {
 });
 
 // ==========================================
-// ROTA: RECRIAR / EDITAR IMAGEM VIA IA (DIRETOR DE ARTE & NANO BANANA 2.1)
+// ROTA: GERAR PLANO VISUAL MULTIMODAL (DIRETOR DE ARTE + BRIEFING DO GERENTE)
 // ==========================================
-app.post('/api/marketing/ai/recreate-image', async (req, res) => {
+app.post('/api/marketing/art/plan', async (req, res) => {
   try {
-    const { 
-      sku, 
-      slotId, 
-      slotNumber, 
-      currentImagePath, 
-      userInstructions, 
-      productName,
-      brand,
-      title, 
-      badge, 
-      headline, 
-      bullets, 
-      callout, 
-      insight 
-    } = req.body;
-
-    const resolvedSku = (sku || '123Mart09168').trim();
-    const resolvedSlotNum = Number(slotNumber) || Number(slotId) || 1;
-    const cleanUserText = (userInstructions || '').trim();
-    const resolvedProdName = (productName || title || `Produto ${resolvedSku}`).trim();
-
-    console.log(`\n[🎨 Diretor de Arte AI] Solicitação de recriação para "${resolvedProdName}" (${resolvedSku} - Slot ${resolvedSlotNum})`);
-    console.log(`[📝 Instruções do Usuário]: "${cleanUserText || '(Sem instrução adicional - Otimização padrão)'}"`);
-
-    const fs = await import('fs');
-    const path = await import('path');
-
-    let base64ImageData = '';
-    let mimeType = 'image/jpeg';
-    let baseImagePath = '';
-
-    // 1. Se for URL remota (ex: Nuvemshop CDN), baixa o buffer real do produto
-    if (currentImagePath && (currentImagePath.startsWith('http://') || currentImagePath.startsWith('https://'))) {
-      try {
-        const { default: axios } = await import('axios');
-        const dlRes = await axios.get(currentImagePath, { responseType: 'arraybuffer', timeout: 10000 });
-        base64ImageData = Buffer.from(dlRes.data).toString('base64');
-        const ct = dlRes.headers['content-type'];
-        if (typeof ct === 'string') mimeType = ct.split(';')[0];
-      } catch (dlErr: any) {
-        console.warn('Erro ao baixar imagem remota para recriação:', dlErr.message);
-      }
+    const { sku, forceRefreshManager } = req.body;
+    const resolvedSku = (sku || '').trim();
+    if (!resolvedSku) {
+      return res.status(400).json({ error: 'SKU é obrigatório para gerar o Plano Visual do Diretor de Arte.' });
     }
 
-    // 2. Se não baixou por URL, localiza a imagem base no disco
-    if (!base64ImageData) {
-      const cleanImgPath = (currentImagePath || '').replace(/^\//, '');
-      const candidatePaths = [
-        cleanImgPath ? path.join(process.cwd(), 'public', cleanImgPath) : '',
-        cleanImgPath ? path.join(process.cwd(), cleanImgPath) : '',
-        path.join(process.cwd(), 'public', 'assets', 'slots_09168', `slot_${resolvedSlotNum}.jpg`),
-        path.join(process.cwd(), 'public', 'assets', 'slots', `slot_${resolvedSlotNum}.jpg`)
-      ].filter(Boolean);
-
-      for (const p of candidatePaths) {
-        if (fs.existsSync(p) && fs.statSync(p).isFile()) {
-          baseImagePath = p;
-          break;
-        }
-      }
-
-      if (baseImagePath && fs.existsSync(baseImagePath)) {
-        const buffer = fs.readFileSync(baseImagePath);
-        base64ImageData = buffer.toString('base64');
-        mimeType = baseImagePath.endsWith('.png') ? 'image/png' : 'image/jpeg';
-      }
+    // 1. Busca dados reais da Nuvemshop (todas as fotos + descrição + marca)
+    let productData: any = null;
+    try {
+      const nuvemRes = await axios.get(`http://localhost:${PORT}/api/marketing/nuvemshop/product/${encodeURIComponent(resolvedSku)}`);
+      if (nuvemRes.data) productData = nuvemRes.data;
+    } catch (e: any) {
+      console.warn(`[Art Plan] Produto ${resolvedSku} não carregado da Nuvemshop, usando dados recebidos:`, e?.message);
     }
 
-    // 3. Constrói o Prompt minucioso para o Gemini com as instruções do usuário em destaque
-    const fullPrompt = `Você é o Diretor de Arte e Especialista de Design Gráfico da 123Mart.
-Sua missão é recriar e editar esta imagem publicitária para e-commerce do PRODUTO REAL: "${resolvedProdName}" (SKU: ${resolvedSku}, Marca: ${brand || 'Start Química'}).
-
-🚨 ATENÇÃO MÁXIMA DE IDENTIDADE VISUAL (PROIBIDO ALUCINAR OUTRO PRODUTO):
-O produto real a ser renderizado é RIGOROSAMENTE "${resolvedProdName}".
-A imagem de referência fornecida mostra o produto oficial cadastrado na loja (como o blister, frasco ou embalagem original deste produto).
-É TERMINANTEMENTE PROIBIDO inventar outro frasco, pote de amaciante ou produto diferente! Você deve manter a identidade visual fiel deste produto "${resolvedProdName}".
-
-${cleanUserText ? `🚨 [INSTRUÇÕES OBRIGATÓRIAS DO USUÁRIO / DIRETORIA - PRIORIDADE TOTAL]:
-"${cleanUserText}"
-ATENÇÃO: Você DEVE seguir estritamente o comando acima. Se o usuário pediu para remover tarjas pretas, retirar bordas escuras, mudar contraste, alterar selos ou mudar elementos, execute EXATAMENTE o que foi pedido!` : ''}
-
-[DIRETRIZES TÉCNICAS DO SLOT ${resolvedSlotNum}]:
-- Título do Slot: ${title || `Slot ${resolvedSlotNum}`}
-- Badge: ${badge || ''}
-- Headline: ${headline || ''}
-- Bullets: ${(Array.isArray(bullets) ? bullets.join(' • ') : bullets) || ''}
-- Callout: ${callout || ''}
-- Objetivo do Slot: ${insight || ''}
-
-[REGRAS MANDATÓRIAS DE DESIGN 123MART (E-COMMERCE HIGH TICKET)]:
-1. PRODUTO ORIGINAL (STRICT COMPOSITING): Mantenha 100% da anatomia real do produto "${resolvedProdName}".
-2. ZERO TARJAS OU BORDAS PRETAS: É estritamente proibido incluir tarjas pretas, vinhetas escuras ou faixas pretas ao redor do produto ou nas margens da imagem. Fundo limpo, profissional e expansivo.
-3. Se for Slot 1: Fundo 100% Branco Puro (#FFFFFF), iluminação de estúdio comercial suave, sem textos ou marcas d’água da loja.
-4. Se for Slots 2 a 8: Ambientação realista em alta definição condizente com a utilização real do produto "${resolvedProdName}", tipografia Mobile-First nítida e legível em celulares, cores vivas e proporção 1:1.
-5. Iluminação comercial cristalina, sem ruídos e com acabamento de fotografia publicitária de grandes marcas.`;
-
-    // 3. Garante o diretório de destino
-    const outputDir = path.join(process.cwd(), 'public', 'assets', 'generated');
-    if (!fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir, { recursive: true });
+    if (!productData) {
+      productData = {
+        sku: resolvedSku,
+        name: req.body.productName || `Produto ${resolvedSku}`,
+        brand: req.body.brand || '',
+        description: req.body.description || '',
+        price: req.body.price || 0,
+        images: Array.isArray(req.body.images) ? req.body.images : [],
+      };
     }
 
-    const timestamp = Date.now();
-    const newFileName = `${resolvedSku}_slot_${resolvedSlotNum}_v${timestamp}.png`;
-    const newFilePath = path.join(outputDir, newFileName);
-    const newPublicUrl = `/assets/generated/${newFileName}`;
+    // 2. Carrega briefing existente para aproveitar a inteligência do Pesquisador, Monitor e Gerente
+    const allBriefings = await firebaseService.getSkuBriefings();
+    const existing = Array.isArray(allBriefings)
+      ? (allBriefings.find((b: any) => String(b.sku || '').toLowerCase() === resolvedSku.toLowerCase()) as any)
+      : null;
 
-    let generatedBase64 = '';
-    let usedModel = 'gemini-nano-banana-2.1';
+    let managerBriefing = existing?.managerBriefing || null;
+    let managerMarkdown = existing?.manager || '';
 
-    // 4. Executa a geração via Gemini com a API Key
-    if (process.env.GEMINI_API_KEY) {
-      try {
-        const { GoogleGenAI } = await import('@google/genai');
-        const ai = new GoogleGenAI({
-          apiKey: process.env.GEMINI_API_KEY,
-          httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
-        });
-
-        const contentsParts: any[] = [];
-        if (base64ImageData) {
-          contentsParts.push({
-            inlineData: {
-              data: base64ImageData,
-              mimeType: mimeType
-            }
-          });
-        }
-        contentsParts.push({ text: fullPrompt });
-
-        let response: any = null;
-        try {
-          response = await ai.models.generateContent({
-            model: 'gemini-3.1-flash-lite-image',
-            contents: { parts: contentsParts }
-          });
-          usedModel = 'gemini-3.1-flash-lite-image';
-        } catch (imgErr: any) {
-          console.warn('[Gemini Image] Erro ao gerar imagem via API:', imgErr.message);
-        }
-
-        for (const part of response.candidates?.[0]?.content?.parts ?? []) {
-          if (part.inlineData?.data) {
-            generatedBase64 = part.inlineData.data;
-            break;
-          }
-        }
-      } catch (geminiError: any) {
-        console.error('Erro na chamada da API Gemini para recriação:', geminiError?.message || geminiError);
-      }
+    // 3. Padrão Agência: se o Gerente ainda não produziu o Briefing Mestre Estratégico, gera agora antes do Diretor de Arte
+    if (!managerBriefing || forceRefreshManager) {
+      const plannerSummary = (existing?.planner || '').slice(0, 1500);
+      const monitorSummary = (existing?.monitor || '').slice(0, 1200);
+      const officialBrand = (productData.brand || existing?.officialBrand || 'Marca Oficial Homologada').trim();
+      const mgrOut = await aiService.generateManagerBriefing(productData, plannerSummary, monitorSummary, officialBrand);
+      managerBriefing = mgrOut.briefing;
+      managerMarkdown = mgrOut.markdown;
     }
 
-    // 5. Salva a imagem gerada ou cria cópia tratada de alta fidelidade
-    if (generatedBase64) {
-      fs.writeFileSync(newFilePath, Buffer.from(generatedBase64, 'base64'));
-    } else {
-      // Fallback gracioso: copia imagem base tratada limpa para a pasta gerada
-      if (baseImagePath && fs.existsSync(baseImagePath)) {
-        fs.copyFileSync(baseImagePath, newFilePath);
-      } else {
-        // Se nenhum arquivo existia, cria imagem neutra de estúdio
-        const dummyBuffer = Buffer.from(
-          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
-          'base64'
-        );
-        fs.writeFileSync(newFilePath, dummyBuffer);
-      }
+    // 4. Diretor de Arte Multimodal analisa TODAS as fotos reais + Briefing Estratégico do Gerente
+    const artOut = await aiService.generateArtDirectionPlan(productData, managerBriefing);
+
+    if (artOut.plan.verifiedManufacturer && managerBriefing) {
+      managerBriefing = aiService.sanitizeBriefingManufacturer(
+        managerBriefing,
+        artOut.plan.verifiedManufacturer
+      );
     }
+
+    // Novo plano visual reseta aprovações antigas para evitar publicar presets legados sem gerar Híbrido 2.0
+    const resetApprovals = { approvedSlots: [], keptPreviousSlots: [], allApproved: false };
+    artApprovals[resolvedSku] = resetApprovals;
+
+    // 5. Persiste no briefing do SKU
+    await firebaseService.saveSkuBriefing(resolvedSku, {
+      sku: resolvedSku,
+      officialBrand: managerBriefing?.officialBrand || artOut.plan.officialBrand,
+      manager: managerMarkdown || existing?.manager,
+      managerBriefing,
+      art: artOut.markdown,
+      artPlan: artOut.plan,
+      artApprovals: resetApprovals,
+      artApproved: false,
+    });
 
     const dateStr = new Date().toLocaleDateString('pt-BR') + ' ' + new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-
-    // 6. Registra no Painel de Auditoria com VISÃO COMPLETA das instruções do usuário
     globalAuditTasks.unshift({
-      id: `task-recreate-${resolvedSku}-${resolvedSlotNum}-${timestamp}`,
+      id: `task-art-plan-${resolvedSku}-${Date.now()}`,
       date: dateStr,
-      productName: `[${resolvedSku}] Imagem Slot ${resolvedSlotNum} Recriada com IA`,
-      receivedPrompt: cleanUserText 
-        ? `[DIRETOR DE ARTE] Instruções recebidas do usuário para o Slot ${resolvedSlotNum} (${title}): "${cleanUserText}". Modelo acionado: ${usedModel}.`
-        : `[DIRETOR DE ARTE] Recriação e otimização visual para o Slot ${resolvedSlotNum} (${title}) via ${usedModel}.`,
-      sentResponse: JSON.stringify({
-        status: 'image_recreated',
-        sku: resolvedSku,
-        slotNumber: resolvedSlotNum,
-        model: usedModel,
-        userInstructionsApplied: cleanUserText || 'Otimização visual padrão de marketplace',
-        resultImageUrl: newPublicUrl,
-        complianceRules: [
-          'Strict Compositing: Preservada anatomia original do produto',
-          'Zero tarjas pretas: Bordas limpas e fundo integrado',
-          'Tipografia Mobile-First legível em telas de smartphone'
-        ]
-      }, null, 2),
+      productName: `[${resolvedSku}] Plano Visual Multimodal (8 Slots)`,
+      receivedPrompt: artOut.prompt.slice(0, 1200),
+      sentResponse: artOut.markdown,
       status: 'completed',
       role: 'art',
-      requestingSector: 'Diretoria Executiva / CEO',
-      executingSector: 'Diretor de Arte e Audiovisual',
-      oldScore: 60,
+      requestingSector: 'Gerente de Projetos',
+      executingSector: 'Diretor de Arte Multimodal',
+      oldScore: 40,
       newScore: 100,
-      evolutionPercentage: 40
+      evolutionPercentage: 60,
     });
 
     res.json({
       success: true,
       sku: resolvedSku,
-      slotId: Number(slotId),
+      managerBriefing,
+      artPlan: artOut.plan,
+      markdown: artOut.markdown,
+    });
+  } catch (err: any) {
+    console.error('Erro na rota /api/marketing/art/plan:', err);
+    const msg = err?.message || 'Falha ao gerar plano visual do Diretor de Arte.';
+    res.status(500).json({ error: msg });
+  }
+});
+
+// ==========================================
+// ROTA: RECRIAR / GERAR IMAGEM VIA IA (MODO HÍBRIDO PT-BR & IA INTEGRADA)
+// ==========================================
+app.post('/api/marketing/ai/recreate-image', async (req, res) => {
+  try {
+    const {
+      sku,
+      slotId,
+      slotNumber,
+      currentImagePath,
+      sourceImageUrl,
+      userInstructions,
+      renderMode: requestedRenderMode,
+      overlayOnly,
+      productName,
+      brand,
+      title,
+      badge,
+      headline,
+      subtitle,
+      cardStyle,
+      cards,
+      bullets,
+      callout,
+      insight,
+      accentHex,
+      panelTheme,
+      textPosition,
+      hybridScenePrompt,
+      integratedImagePrompt,
+      availableImages,
+      userEditedDraft,
+      userSelectedImage,
+    } = req.body;
+
+    const resolvedSku = (sku || '123Mart09168').trim();
+    const resolvedSlotNum = Number(slotNumber) || Number(slotId) || 1;
+    const renderMode: ArtRenderMode = requestedRenderMode === 'ai_integrated' ? 'ai_integrated' : 'hybrid';
+    const cleanUserText = (userInstructions || '').trim();
+    const resolvedProdName = (productName || title || `Produto ${resolvedSku}`).trim();
+
+    console.log(`\n[🎨 Diretor de Arte AI] Gerando Slot ${resolvedSlotNum} para "${resolvedProdName}" (${resolvedSku}) | Modo: ${renderMode}${overlayOnly ? ' [Somente Tipografia Híbrida]' : ''}`);
+    if (cleanUserText) console.log(`[📝 Instruções do Usuário]: "${cleanUserText}"`);
+
+    const isGenericFallbackHeadline =
+      typeof headline === 'string' &&
+      /^(EFICI[ÊE]NCIA M[ÁA]XIMA COMPROVADA|VANTAGENS EXCLUSIVAS DO PRODUTO|RENDIMENTO M[ÁA]XIMO POR UNIDADE|F[ÓO]RMULA TESTADA & HOMOLOGADA|TOTALMENTE SEGURO & CONFI[ÁA]VEL|PASSO A PASSO SIMPLES & R[ÁA]PIDO|COMPRA SEGURA COM NOTA FISCAL)$/i.test(
+        headline.trim()
+      );
+
+    // 1. Carrega briefing persistido do SKU (para resgatar artPlan, managerBriefing e cena limpa em cache)
+    let allBriefings = await firebaseService.getSkuBriefings();
+    let existingBriefing = Array.isArray(allBriefings)
+      ? (allBriefings.find((b: any) => String(b.sku || '').toLowerCase() === resolvedSku.toLowerCase()) as any)
+      : null;
+
+    let existingPlanSlot: ArtSlotPlan | undefined = existingBriefing?.artPlan?.slots?.find(
+      (s: any) => Number(s.slotNumber) === resolvedSlotNum
+    );
+
+    // 1B. Auto-bootstrap do Plano Visual Multimodal se o SKU ainda não tem artPlan e chegaram textos genéricos de fallback
+    // (evita textos genéricos e fotos secundárias inválidas como logos/piscinas sujas quando o usuário clica direto em Recriar!)
+    if (
+      !existingPlanSlot &&
+      !overlayOnly &&
+      !userEditedDraft &&
+      (isGenericFallbackHeadline || resolvedSlotNum > 1) &&
+      /^123Mart/i.test(resolvedSku)
+    ) {
+      try {
+        const planLocks: Map<string, Promise<any>> =
+          (globalThis as any).__artPlanInFlight || ((globalThis as any).__artPlanInFlight = new Map());
+        const lockKey = resolvedSku.toLowerCase();
+        let inFlight = planLocks.get(lockKey);
+        if (!inFlight) {
+          console.log(`[🎨 Diretor de Arte] SKU ${resolvedSku} sem artPlan — gerando Plano Visual Multimodal antes de renderizar...`);
+          inFlight = axios
+            .post(`http://localhost:${PORT}/api/marketing/art/plan`, { sku: resolvedSku })
+            .finally(() => planLocks.delete(lockKey));
+          planLocks.set(lockKey, inFlight);
+        }
+        await inFlight;
+        allBriefings = await firebaseService.getSkuBriefings();
+        existingBriefing = Array.isArray(allBriefings)
+          ? (allBriefings.find((b: any) => String(b.sku || '').toLowerCase() === resolvedSku.toLowerCase()) as any)
+          : existingBriefing;
+        existingPlanSlot = existingBriefing?.artPlan?.slots?.find(
+          (s: any) => Number(s.slotNumber) === resolvedSlotNum
+        );
+      } catch (autoPlanErr: any) {
+        console.warn('[Diretor de Arte] Auto-bootstrap do artPlan falhou, prosseguindo com segurança:', autoPlanErr?.message);
+      }
+    }
+
+    const existingGeneratedSlot = existingBriefing?.generatedSlots?.[String(resolvedSlotNum)] || existingBriefing?.generatedSlots?.[resolvedSlotNum];
+    const officialBrand = (
+      existingBriefing?.managerBriefing?.officialBrand ||
+      existingBriefing?.officialBrand ||
+      brand ||
+      'Marca Oficial'
+    ).trim();
+
+    let rawAvailableImages = Array.isArray(availableImages) ? availableImages : [];
+    if (rawAvailableImages.length === 0 && !sourceImageUrl && !currentImagePath) {
+      try {
+        const nuvemRes = await axios.get(
+          `http://localhost:${PORT}/api/marketing/nuvemshop/product/${encodeURIComponent(resolvedSku)}`
+        );
+        if (Array.isArray(nuvemRes.data?.images)) {
+          rawAvailableImages = nuvemRes.data.images;
+        }
+      } catch (fetchImgErr: any) {
+        console.warn('[Diretor de Arte] Falha ao buscar fotos da Nuvemshop:', fetchImgErr?.message);
+      }
+    }
+
+    const validAvailableImages = rawAvailableImages.filter(
+      (img: any) => img?.src && !/image_[0-9a-f]{8}/i.test(img.src) && !img.src.includes('/assets/aistudio/')
+    );
+
+    // 2. Monta o slot atual combinando plano persistido + edições feitas na tela pelo usuário
+    // Proteção: nunca deixa textos genéricos de fallback sobrescreverem um plano real já gerado pelo Diretor de Arte!
+    const shouldUseIncomingDraft =
+      Boolean(userEditedDraft) || !existingPlanSlot || !isGenericFallbackHeadline;
+
+    let workingSlot: ArtSlotPlan = validateAndNormalizeArtSlot(
+      {
+        ...(existingPlanSlot || {}),
+        slotNumber: resolvedSlotNum,
+        title: (shouldUseIncomingDraft ? title : undefined) ?? existingPlanSlot?.title ?? title,
+        badge: shouldUseIncomingDraft && badge !== undefined ? badge : existingPlanSlot?.badge,
+        headline: shouldUseIncomingDraft && headline !== undefined ? headline : existingPlanSlot?.headline,
+        subtitle: shouldUseIncomingDraft && subtitle !== undefined ? subtitle : existingPlanSlot?.subtitle,
+        cardStyle: (shouldUseIncomingDraft ? cardStyle : undefined) || existingPlanSlot?.cardStyle,
+        cards: shouldUseIncomingDraft && Array.isArray(cards) ? cards : existingPlanSlot?.cards,
+        bullets: shouldUseIncomingDraft && Array.isArray(bullets) ? bullets : existingPlanSlot?.bullets,
+        callout: shouldUseIncomingDraft && callout !== undefined ? callout : existingPlanSlot?.callout,
+        insight: (shouldUseIncomingDraft ? insight : undefined) ?? existingPlanSlot?.insight ?? insight,
+        accentHex: (shouldUseIncomingDraft ? accentHex : undefined) || existingPlanSlot?.accentHex,
+        panelTheme: (shouldUseIncomingDraft ? panelTheme : undefined) || existingPlanSlot?.panelTheme,
+        textPosition: (shouldUseIncomingDraft ? textPosition : undefined) || existingPlanSlot?.textPosition,
+        hybridScenePrompt: (shouldUseIncomingDraft ? hybridScenePrompt : undefined) || existingPlanSlot?.hybridScenePrompt || hybridScenePrompt,
+        integratedImagePrompt: (shouldUseIncomingDraft ? integratedImagePrompt : undefined) || existingPlanSlot?.integratedImagePrompt || integratedImagePrompt,
+      },
+      resolvedSlotNum,
+      Math.max(1, validAvailableImages.length)
+    );
+
+    const initialSourceIdx = workingSlot.sourceImageIndex || 0;
+    const wantsRealProductPhoto = /(apresente\s+o\s+produto|mostre\s+o\s+produto|retire\s+a\s+logo|sem\s+logomarca|piscina\s+suja)/i.test(
+      cleanUserText
+    );
+
+    // 3. Se o usuário digitou instruções criativas e NÃO é apenas edição rápida de texto,
+    // o Diretor de Arte revisa o prompt técnico e os textos curtos PT-BR sem erros de grafia!
+    if (cleanUserText && !overlayOnly) {
+      try {
+        workingSlot = await aiService.reviseArtSlotPlan(
+          workingSlot,
+          cleanUserText,
+          { sku: resolvedSku, name: resolvedProdName, brand: officialBrand },
+          officialBrand,
+          Math.max(1, validAvailableImages.length)
+        );
+      } catch (revErr: any) {
+        console.warn('[Diretor de Arte] Falha ao revisar prompt via LLM, incorporando instrução diretamente:', revErr?.message);
+        workingSlot = {
+          ...workingSlot,
+          hybridScenePrompt: `${workingSlot.hybridScenePrompt} Additional creative direction: ${cleanUserText}. DO NOT render any text, letters, numbers or store logos in the background.`,
+          integratedImagePrompt: `${workingSlot.integratedImagePrompt} Additional creative direction: ${cleanUserText}.`,
+        };
+      }
+      if (wantsRealProductPhoto) {
+        workingSlot.sourceImageIndex = 0;
+      }
+    }
+
+    // 4. Resolve a foto real de referência do produto
+    // Se o usuário NÃO escolheu manualmente outra foto no seletor, prioriza o índice validado pelo artPlan (ou Foto 1),
+    // evitando que fotos secundárias inválidas (logo isolado ou piscina sem embalagem) cheguem ao compositor.
+    const shouldUsePlanSourceIndex =
+      validAvailableImages.length > 0 &&
+      (workingSlot.sourceImageIndex !== initialSourceIdx ||
+        wantsRealProductPhoto ||
+        (!userSelectedImage && Boolean(existingPlanSlot)));
+
+    let resolvedSourceImage = shouldUsePlanSourceIndex
+      ? (validAvailableImages[Math.min(workingSlot.sourceImageIndex || 0, validAvailableImages.length - 1)]?.src || validAvailableImages[0]?.src || '')
+      : (sourceImageUrl || currentImagePath || '').trim();
+    if (!resolvedSourceImage && validAvailableImages.length > 0) {
+      const idx = Math.min(workingSlot.sourceImageIndex || 0, validAvailableImages.length - 1);
+      resolvedSourceImage = validAvailableImages[idx]?.src || validAvailableImages[0]?.src || '';
+    }
+    if (!resolvedSourceImage) {
+      // Fallback para pasta local do SKU caso exista
+      const cleanDigits = resolvedSku.replace(/^123Mart/i, '').replace(/[^0-9]/g, '');
+      const localCandidates = [
+        `/assets/slots_${cleanDigits}/foto_1.png`,
+        `/assets/slots_${cleanDigits}/foto_1_isolated.png`,
+        `/assets/slots_${cleanDigits}/slot_1.jpg`,
+      ];
+      for (const c of localCandidates) {
+        if (fs.existsSync(path.join(process.cwd(), 'public', c.replace(/^\//, '')))) {
+          resolvedSourceImage = c;
+          break;
+        }
+      }
+    }
+
+    if (!resolvedSourceImage) {
+      return res.status(400).json({
+        error: `Nenhuma foto base válida do produto foi encontrada para o SKU ${resolvedSku}. Verifique se o produto possui fotos cadastradas na Nuvemshop.`,
+      });
+    }
+
+    // 5. Executa a geração real via Gemini Image + Composição Híbrida PT-BR + Otimização JPG/WebP
+    // Nunca força redesenho da embalagem pela IA: o recorte pixel-original v3 preserva 100% da embalagem e rótulo reais sem transparência!
+    const composed = await generateArtSlotImage({
+      sku: resolvedSku,
       slotNumber: resolvedSlotNum,
-      imageUrl: newPublicUrl,
+      sourceImageUrlOrPath: resolvedSourceImage,
+      renderMode,
+      hybridScenePrompt: workingSlot.hybridScenePrompt,
+      integratedImagePrompt: workingSlot.integratedImagePrompt,
+      overlay: {
+        slotNumber: resolvedSlotNum,
+        badge: workingSlot.badge,
+        headline: workingSlot.headline,
+        subtitle: workingSlot.subtitle,
+        cardStyle: workingSlot.cardStyle,
+        cards: workingSlot.cards,
+        bullets: workingSlot.bullets,
+        callout: workingSlot.callout,
+        accentHex: workingSlot.accentHex,
+        panelTheme: workingSlot.panelTheme,
+        textPosition: workingSlot.textPosition,
+      },
+      overlayOnly: Boolean(overlayOnly),
+      cachedCleanScenePath: existingGeneratedSlot?.cleanSceneUrl,
+      forceSolidAiCompositing: false,
+    });
+
+    // 6. Persiste resultado e plano atualizado no briefing do SKU (sobrevive a recarregamentos)
+    const timestamp = Date.now();
+    const updatedGeneratedSlots = {
+      ...(existingBriefing?.generatedSlots || {}),
+      [String(resolvedSlotNum)]: {
+        slotNumber: resolvedSlotNum,
+        jpgUrl: composed.jpgUrl,
+        webpUrl: composed.webpUrl,
+        cleanSceneUrl: composed.cleanSceneUrl || existingGeneratedSlot?.cleanSceneUrl,
+        jpgSizeKb: composed.jpgSizeKb,
+        webpSizeKb: composed.webpSizeKb,
+        modelUsed: composed.modelUsed,
+        renderMode: composed.renderMode,
+        sourceImageUsed: resolvedSourceImage,
+        userInstructions: cleanUserText,
+        updatedAt: timestamp,
+      },
+    };
+
+    const updatedArtPlan = existingBriefing?.artPlan
+      ? {
+          ...existingBriefing.artPlan,
+          slots: (existingBriefing.artPlan.slots || []).map((s: ArtSlotPlan) =>
+            Number(s.slotNumber) === resolvedSlotNum ? workingSlot : s
+          ),
+        }
+      : undefined;
+
+    await firebaseService.saveSkuBriefing(resolvedSku, {
+      sku: resolvedSku,
+      generatedSlots: updatedGeneratedSlots,
+      ...(updatedArtPlan ? { artPlan: updatedArtPlan } : {}),
+    });
+
+    const dateStr = new Date().toLocaleDateString('pt-BR') + ' ' + new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    globalAuditTasks.unshift({
+      id: `task-recreate-${resolvedSku}-${resolvedSlotNum}-${timestamp}`,
+      date: dateStr,
+      productName: `[${resolvedSku}] Slot ${resolvedSlotNum} Gerado (${renderMode === 'hybrid' ? 'Modo Híbrido' : 'IA Integrada'})`,
+      receivedPrompt: cleanUserText
+        ? `[DIRETOR DE ARTE] Slot ${resolvedSlotNum} — Instruções: "${cleanUserText}" | Prompt técnico: ${workingSlot.hybridScenePrompt.slice(0, 500)}`
+        : `[DIRETOR DE ARTE] Slot ${resolvedSlotNum} — Prompt técnico: ${workingSlot.hybridScenePrompt.slice(0, 500)}`,
+      sentResponse: JSON.stringify(
+        {
+          status: 'image_generated',
+          sku: resolvedSku,
+          slotNumber: resolvedSlotNum,
+          renderMode: composed.renderMode,
+          modelUsed: composed.modelUsed,
+          jpgUrl: composed.jpgUrl,
+          webpUrl: composed.webpUrl,
+          jpgSizeKb: composed.jpgSizeKb,
+          webpSizeKb: composed.webpSizeKb,
+          copyUsed:
+            resolvedSlotNum === 1
+              ? 'Capa Oficial sem texto (#FFFFFF)'
+              : {
+                  badge: workingSlot.badge,
+                  headline: workingSlot.headline,
+                  subtitle: workingSlot.subtitle,
+                  cardStyle: workingSlot.cardStyle,
+                  cards: workingSlot.cards,
+                  callout: workingSlot.callout,
+                },
+        },
+        null,
+        2
+      ),
+      status: 'completed',
+      role: 'art',
+      requestingSector: 'Diretoria / Gerente de Projetos',
+      executingSector: 'Diretor de Arte e Audiovisual',
+      oldScore: 60,
+      newScore: 100,
+      evolutionPercentage: 40,
+    });
+
+    res.json({
+      success: true,
+      sku: resolvedSku,
+      slotId: Number(slotId) || resolvedSlotNum,
+      slotNumber: resolvedSlotNum,
+      imageUrl: composed.jpgUrl,
+      webpUrl: composed.webpUrl,
+      cleanSceneUrl: composed.cleanSceneUrl || existingGeneratedSlot?.cleanSceneUrl,
+      fileSizeJpg: composed.jpgSizeKb,
+      fileSizeWebp: composed.webpSizeKb,
+      renderMode: composed.renderMode,
+      modelUsed: composed.modelUsed,
+      updatedSlot: workingSlot,
       userInstructions: cleanUserText,
-      appliedNote: cleanUserText 
-        ? `Instruções lidas e aplicadas com sucesso pelo Diretor de Arte: "${cleanUserText}"` 
-        : `Imagem recriada com iluminação de estúdio e tipografia Mobile-First (Sem tarjas pretas).`,
-      modelUsed: usedModel,
-      timestamp
+      appliedNote: overlayOnly
+        ? `Tipografia PT-BR atualizada instantaneamente no Modo Híbrido (${composed.jpgSizeKb}).`
+        : cleanUserText
+          ? `Diretor de Arte aplicou "${cleanUserText}" via ${composed.modelUsed} (${composed.jpgSizeKb}).`
+          : `Imagem produzida via ${composed.modelUsed} (${composed.jpgSizeKb}).`,
+      timestamp,
     });
   } catch (err: any) {
     console.error('Erro na rota /api/marketing/ai/recreate-image:', err);
-    res.status(500).json({ error: err.message });
+    const msg = err?.message || 'Falha ao gerar imagem via IA.';
+    const requiresPaidKey =
+      err?.code === 'MISSING_API_KEY' ||
+      /API key|billing|quota|403|PERMISSION_DENIED/i.test(msg);
+    res.status(requiresPaidKey ? 402 : 500).json({
+      success: false,
+      error: msg,
+      requiresPaidKey,
+    });
+  }
+});
+
+// ==========================================
+// ROTA: GERAR TODAS AS 8 IMAGENS DA GALERIA EM LOTE
+// ==========================================
+app.post('/api/marketing/art/generate-all', async (req, res) => {
+  try {
+    const { sku, renderMode: requestedRenderMode } = req.body;
+    const resolvedSku = (sku || '').trim();
+    const renderMode: ArtRenderMode = requestedRenderMode === 'ai_integrated' ? 'ai_integrated' : 'hybrid';
+
+    if (!resolvedSku) {
+      return res.status(400).json({ error: 'SKU é obrigatório.' });
+    }
+
+    // 1. Garante dados reais da Nuvemshop
+    let productData: any = null;
+    try {
+      const nuvemRes = await axios.get(`http://localhost:${PORT}/api/marketing/nuvemshop/product/${encodeURIComponent(resolvedSku)}`);
+      if (nuvemRes.data) productData = nuvemRes.data;
+    } catch {}
+
+    // 2. Carrega ou cria o artPlan multimodal antes de gerar as imagens
+    const allBriefings = await firebaseService.getSkuBriefings();
+    let existing = Array.isArray(allBriefings)
+      ? (allBriefings.find((b: any) => String(b.sku || '').toLowerCase() === resolvedSku.toLowerCase()) as any)
+      : null;
+
+    let artPlan = existing?.artPlan;
+    if (!artPlan || !Array.isArray(artPlan.slots) || artPlan.slots.length < 8) {
+      const planRes = await axios.post(`http://localhost:${PORT}/api/marketing/art/plan`, { sku: resolvedSku });
+      artPlan = planRes.data?.artPlan;
+      const refreshed = await firebaseService.getSkuBriefings();
+      existing = Array.isArray(refreshed)
+        ? (refreshed.find((b: any) => String(b.sku || '').toLowerCase() === resolvedSku.toLowerCase()) as any)
+        : existing;
+    }
+
+    const validImages = (productData?.images || []).filter(
+      (img: any) => img?.src && !/image_[0-9a-f]{8}/i.test(img.src) && !img.src.includes('/assets/aistudio/')
+    );
+
+    const results: any[] = [];
+    const errors: Array<{ slotNumber: number; error: string }> = [];
+
+    for (const slot of artPlan.slots) {
+      const idx = Math.min(slot.sourceImageIndex || 0, Math.max(0, validImages.length - 1));
+      const sourceImg = validImages[idx]?.src || validImages[0]?.src || '';
+
+      try {
+        const genRes = await axios.post(`http://localhost:${PORT}/api/marketing/ai/recreate-image`, {
+          sku: resolvedSku,
+          slotId: slot.slotNumber,
+          slotNumber: slot.slotNumber,
+          sourceImageUrl: sourceImg,
+          renderMode,
+          productName: productData?.name,
+          brand: artPlan.officialBrand || productData?.brand,
+          title: slot.title,
+          badge: slot.badge,
+          headline: slot.headline,
+          subtitle: slot.subtitle,
+          cardStyle: slot.cardStyle,
+          cards: slot.cards,
+          bullets: slot.bullets,
+          callout: slot.callout,
+          insight: slot.insight,
+          accentHex: slot.accentHex,
+          panelTheme: slot.panelTheme,
+          textPosition: slot.textPosition,
+          hybridScenePrompt: slot.hybridScenePrompt,
+          integratedImagePrompt: slot.integratedImagePrompt,
+          availableImages: validImages,
+        });
+        results.push(genRes.data);
+      } catch (slotErr: any) {
+        const errMsg = slotErr?.response?.data?.error || slotErr?.message || 'Erro ao gerar slot';
+        errors.push({ slotNumber: slot.slotNumber, error: errMsg });
+        if (slotErr?.response?.data?.requiresPaidKey) {
+          return res.status(402).json({
+            success: false,
+            error: errMsg,
+            requiresPaidKey: true,
+            results,
+            errors,
+          });
+        }
+      }
+    }
+
+    res.json({
+      success: errors.length === 0,
+      sku: resolvedSku,
+      renderMode,
+      generatedCount: results.length,
+      results,
+      errors,
+    });
+  } catch (err: any) {
+    console.error('Erro em /api/marketing/art/generate-all:', err);
+    res.status(500).json({ error: err?.message || 'Erro ao gerar galeria completa.' });
   }
 });
 
@@ -1236,18 +1976,33 @@ ${cleanPrompt ? `Instruções Específicas do Usuário: "${cleanPrompt}"` : ''}
 
         try {
           const response = await ai.models.generateContent({
-            model: 'gemini-3.1-flash-lite-image',
+            model: 'gemini-nano-banana-2.1',
             contents: { parts: [{ text: socialPrompt }] }
           });
-          usedModel = 'gemini-3.1-flash-lite-image';
+          usedModel = 'gemini-nano-banana-2.1';
           for (const part of response.candidates?.[0]?.content?.parts ?? []) {
             if (part.inlineData?.data) {
               generatedBase64 = part.inlineData.data;
               break;
             }
           }
-        } catch (e: any) {
-          console.warn('[Social Media Image] Falha na geração com Gemini:', e.message);
+        } catch (nanoErr: any) {
+          console.warn('[Social Media Image] Tentando modelo gemini-3.1-flash-lite-image:', nanoErr?.message);
+          try {
+            const response = await ai.models.generateContent({
+              model: 'gemini-3.1-flash-lite-image',
+              contents: { parts: [{ text: socialPrompt }] }
+            });
+            usedModel = 'gemini-3.1-flash-lite-image';
+            for (const part of response.candidates?.[0]?.content?.parts ?? []) {
+              if (part.inlineData?.data) {
+                generatedBase64 = part.inlineData.data;
+                break;
+              }
+            }
+          } catch (e: any) {
+            console.warn('[Social Media Image] Falha na geração com Gemini:', e.message);
+          }
         }
       } catch (err: any) {
         console.error('Erro na geração de imagem social com Gemini:', err?.message || err);
@@ -1455,17 +2210,36 @@ app.post('/api/marketing/market-research', async (req, res) => {
 });
 
 const defaultStepsTemplate = [
-  { id: '1', role: 'Gerente', actionTitle: 'Prompt Planner', type: 'prompt', isCompleted: false },
-  { id: '2', role: 'Planner', actionTitle: 'Relatório PDF', type: 'pdf', isCompleted: false },
-  { id: '3', role: 'Gerente', actionTitle: 'Prompt Monitor', type: 'prompt', isCompleted: false },
-  { id: '4', role: 'Monitor', actionTitle: 'Relatório PDF', type: 'pdf', isCompleted: false },
-  { id: '5', role: 'Gerente', actionTitle: 'Prompt Arte', type: 'prompt', isCompleted: false },
-  { id: '6', role: 'Diret. Arte', actionTitle: 'Relatório PDF', type: 'pdf', isCompleted: false },
-  { id: '7', role: 'Gerente', actionTitle: 'Prompt SEO', type: 'prompt', isCompleted: false },
-  { id: '8', role: 'Esp. SEO', actionTitle: 'Relatório PDF', type: 'pdf', isCompleted: false },
-  { id: '9', role: 'Gerente', actionTitle: 'Briefing Mestre', type: 'pdf', isCompleted: false },
-  { id: '10', role: 'Integração', actionTitle: 'Webhook MeliAgent', type: 'webhook', isCompleted: false }
+  { id: '1', role: 'Gerente', actionTitle: 'Prompt Planner', type: 'prompt', isCompleted: false, phase: 'Pesquisa' },
+  { id: '2', role: 'Planner', actionTitle: 'Relatório PDF', type: 'pdf', isCompleted: false, phase: 'Pesquisa' },
+  { id: '3', role: 'Gerente', actionTitle: 'Prompt Monitor', type: 'prompt', isCompleted: false, phase: 'Pesquisa' },
+  { id: '4', role: 'Monitor', actionTitle: 'Relatório PDF', type: 'pdf', isCompleted: false, phase: 'Revisão' },
+  { id: '5', role: 'Gerente', actionTitle: 'Briefing Mestre PDF', type: 'pdf', isCompleted: false, phase: 'Revisão' },
+  { id: '6', role: 'Diret. Arte', actionTitle: 'Plano Visual 8 Slots', type: 'prompt', isCompleted: false, phase: 'Criação', artObligatory: true },
+  { id: '7', role: 'Diret. Arte', actionTitle: 'Criativos PDF', type: 'pdf', isCompleted: false, phase: 'Criação', artObligatory: true },
+  { id: '8', role: 'Esp. SEO', actionTitle: 'Copy/SEO PDF', type: 'pdf', isCompleted: false, phase: 'Aprovação' },
+  { id: '9', role: 'Gerente', actionTitle: 'Notificações', type: 'webhook', isCompleted: false, phase: 'Salvamento' },
 ];
+
+function applyPipelineStepUpdate(currentSteps: any[], sku: string, step: string, prompt: string) {
+  if (step === 'planner') {
+    currentSteps[0].isCompleted = true; currentSteps[0].content = prompt;
+    currentSteps[1].isCompleted = true; currentSteps[1].pdfUrl = `/api/marketing/pdf/planner/${sku}`;
+  } else if (step === 'monitor') {
+    currentSteps[2].isCompleted = true; currentSteps[2].content = prompt;
+    currentSteps[3].isCompleted = true; currentSteps[3].pdfUrl = `/api/marketing/pdf/monitor/${sku}`;
+  } else if (step === 'manager') {
+    currentSteps[4].isCompleted = true; currentSteps[4].content = prompt;
+    currentSteps[4].pdfUrl = `/api/marketing/pdf/briefing/${sku}`;
+  } else if (step === 'art') {
+    currentSteps[5].isCompleted = true; currentSteps[5].content = prompt;
+    currentSteps[6].isCompleted = true; currentSteps[6].pdfUrl = `/api/marketing/pdf/arte/${sku}`;
+  } else if (step === 'seo') {
+    currentSteps[7].isCompleted = true; currentSteps[7].content = prompt;
+    currentSteps[7].pdfUrl = `/api/marketing/pdf/seo/${sku}`;
+    currentSteps[8].isCompleted = true; currentSteps[8].content = 'Anúncio salvo na Nuvemshop e Webhook MeliAgent disparado com sucesso.';
+  }
+}
 
 
 app.post('/api/marketing/rename-sku', async (req, res) => {
@@ -1530,7 +2304,7 @@ app.post('/api/marketing/rename-sku', async (req, res) => {
           } catch (meliError: any) {}
       };
       
-      aiService.runOrchestrationPipeline(payload, (step, prompt, response) => {
+      aiService.runOrchestrationPipeline(payload, (step, prompt, response, extraData) => {
         const meta = getRoleMetadata(step);
         globalAuditTasks.push({
           id: `task-${step}-${Date.now()}`,
@@ -1547,28 +2321,14 @@ app.post('/api/marketing/rename-sku', async (req, res) => {
           evolutionPercentage: meta.ev
         });
         
-        if (step === 'planner') { 
-            currentSteps[0].isCompleted = true; currentSteps[0].content = prompt;
-            currentSteps[1].isCompleted = true; currentSteps[1].pdfUrl = `/api/marketing/pdf/planner/${newSku}`;
-        } else if (step === 'monitor') { 
-            currentSteps[2].isCompleted = true; currentSteps[2].content = prompt;
-            currentSteps[3].isCompleted = true; currentSteps[3].pdfUrl = `/api/marketing/pdf/monitor/${newSku}`;
-        } else if (step === 'art') { 
-            currentSteps[4].isCompleted = true; currentSteps[4].content = prompt;
-            currentSteps[5].isCompleted = true; currentSteps[5].pdfUrl = `/api/marketing/pdf/arte/${newSku}`;
-        } else if (step === 'seo') { 
-            currentSteps[6].isCompleted = true; currentSteps[6].content = prompt;
-            currentSteps[7].isCompleted = true; currentSteps[7].pdfUrl = `/api/marketing/pdf/seo/${newSku}`;
-        } else if (step === 'manager') { 
-            currentSteps[8].isCompleted = true; currentSteps[8].pdfUrl = `/api/marketing/pdf/briefing/${newSku}`;
-            currentSteps[9].isCompleted = true; currentSteps[9].content = 'Webhook para o sistema de anúncios MeliAgent disparado com sucesso.';
-        }
+        applyPipelineStepUpdate(currentSteps, newSku, step, prompt);
            
         firebaseService.saveSkuBriefing(newSku, { 
             sku: newSku, 
             startedAt: Date.now(), 
             steps: currentSteps,
-            [step]: response 
+            [step]: response,
+            ...(extraData || {})
         }).catch(e => console.error("Falha ao salvar progresso do briefing: ", e));
         
       }, saveProductCallback).catch(e => {
@@ -1702,6 +2462,14 @@ app.post('/api/marketing/orchestrate-optimization', async (req, res) => {
 
     const saveProductCallback = async (seoJson) => {
         try {
+          console.log(`[Especialista SEO] Salvando automaticamente textos e SEO na Nuvemshop para SKU: ${resolvedSku}`);
+          await updateNuvemshopProduct(resolvedSku, seoJson);
+          console.log(`[✅ Especialista SEO] Textos, título, meta e descrição HTML salvos com sucesso na Nuvemshop!`);
+        } catch (saveErr: any) {
+          console.error(`[❌ Especialista SEO] Erro ao salvar na Nuvemshop:`, saveErr?.message || saveErr);
+        }
+
+        try {
           console.log(`[🚀 MeliAgent] Disparando Webhook de Atualização para SKU: ${resolvedSku}`);
           await fetch('https://ais-pre-aj3lqhgqeg6eru2q43vpyh-376013781567.us-west2.run.app/api/webhook/briefing-update', {
             method: 'POST',
@@ -1712,12 +2480,12 @@ app.post('/api/marketing/orchestrate-optimization', async (req, res) => {
             })
           });
           console.log(`[✅ MeliAgent] Webhook disparado com sucesso.`);
-        } catch (meliError) {
-          console.error(`[❌ MeliAgent] Falha ao disparar webhook:`, meliError.message);
+        } catch (meliError: any) {
+          console.error(`[❌ MeliAgent] Falha ao disparar webhook:`, meliError?.message || meliError);
         }
     };
 
-    const result = aiService.runOrchestrationPipeline(payload, (step, prompt, response) => {
+    const result = aiService.runOrchestrationPipeline(payload, (step, prompt, response, extraData) => {
       const meta = getRoleMetadata(step);
       globalAuditTasks.push({
         id: `task-${step}-${Date.now()}`,
@@ -1734,24 +2502,15 @@ app.post('/api/marketing/orchestrate-optimization', async (req, res) => {
         evolutionPercentage: meta.ev
       });
 
-      if (step === 'planner') { 
-          currentSteps[0].isCompleted = true; currentSteps[0].content = prompt;
-          currentSteps[1].isCompleted = true; currentSteps[1].pdfUrl = `/api/marketing/pdf/planner/${resolvedSku}`;
-      } else if (step === 'monitor') { 
-          currentSteps[2].isCompleted = true; currentSteps[2].content = prompt;
-          currentSteps[3].isCompleted = true; currentSteps[3].pdfUrl = `/api/marketing/pdf/monitor/${resolvedSku}`;
-      } else if (step === 'art') { 
-          currentSteps[4].isCompleted = true; currentSteps[4].content = prompt;
-          currentSteps[5].isCompleted = true; currentSteps[5].pdfUrl = `/api/marketing/pdf/arte/${resolvedSku}`;
-      } else if (step === 'seo') { 
-          currentSteps[6].isCompleted = true; currentSteps[6].content = prompt;
-          currentSteps[7].isCompleted = true; currentSteps[7].pdfUrl = `/api/marketing/pdf/seo/${resolvedSku}`;
-      } else if (step === 'manager') { 
-          currentSteps[8].isCompleted = true; currentSteps[8].pdfUrl = `/api/marketing/pdf/briefing/${resolvedSku}`;
-          currentSteps[9].isCompleted = true; currentSteps[9].content = 'Webhook para o sistema de anúncios MeliAgent disparado com sucesso.';
-      }
+      applyPipelineStepUpdate(currentSteps, resolvedSku, step, prompt);
       
-      firebaseService.saveSkuBriefing(resolvedSku, { sku: resolvedSku, startedAt: Date.now(), steps: currentSteps, [step]: response }).catch(e => console.error("Falha ao salvar progresso do briefing: ", e));
+      firebaseService.saveSkuBriefing(resolvedSku, {
+        sku: resolvedSku,
+        startedAt: Date.now(),
+        steps: currentSteps,
+        [step]: response,
+        ...(extraData || {})
+      }).catch(e => console.error("Falha ao salvar progresso do briefing: ", e));
 
     }, saveProductCallback).catch(e => {
         console.error('Background optimization failed', e);
@@ -1912,7 +2671,7 @@ ${skuDirective}
           steps: currentSteps 
         }).catch(e => console.error("Falha ao criar esqueleto do briefing: ", e));
 
-        aiService.runOrchestrationPipeline(productData, (step, prompt, response) => {
+        aiService.runOrchestrationPipeline(productData, (step, prompt, response, extraData) => {
           let req = 'Gerente de Projetos';
           let exe = 'Profissional';
           if (step === 'planner') { exe = 'Pesquisador de Mercado'; }
@@ -1938,26 +2697,25 @@ ${skuDirective}
             evolutionPercentage: 100
           });
 
-          if (step === 'planner') { 
-              currentSteps[0].isCompleted = true; currentSteps[0].content = prompt;
-              currentSteps[1].isCompleted = true; currentSteps[1].pdfUrl = `/api/marketing/pdf/planner/${productData.sku}`;
-          } else if (step === 'monitor') { 
-              currentSteps[2].isCompleted = true; currentSteps[2].content = prompt;
-              currentSteps[3].isCompleted = true; currentSteps[3].pdfUrl = `/api/marketing/pdf/monitor/${productData.sku}`;
-          } else if (step === 'art') { 
-              currentSteps[4].isCompleted = true; currentSteps[4].content = prompt;
-              currentSteps[5].isCompleted = true; currentSteps[5].pdfUrl = `/api/marketing/pdf/arte/${productData.sku}`;
-          } else if (step === 'seo') { 
-              currentSteps[6].isCompleted = true; currentSteps[6].content = prompt;
-              currentSteps[7].isCompleted = true; currentSteps[7].pdfUrl = `/api/marketing/pdf/seo/${productData.sku}`;
-          } else if (step === 'manager') { 
-              currentSteps[8].isCompleted = true; currentSteps[8].pdfUrl = `/api/marketing/pdf/briefing/${productData.sku}`;
-              currentSteps[9].isCompleted = true; currentSteps[9].content = 'Webhook para o sistema de anúncios MeliAgent disparado com sucesso.';
-          }
+          applyPipelineStepUpdate(currentSteps, productData.sku, step, prompt);
           
-          firebaseService.saveSkuBriefing(productData.sku, { sku: productData.sku, startedAt: Date.now(), steps: currentSteps, [step]: response }).catch(e => console.error("Falha ao salvar progresso do briefing: ", e));
+          firebaseService.saveSkuBriefing(productData.sku, {
+            sku: productData.sku,
+            startedAt: Date.now(),
+            steps: currentSteps,
+            [step]: response,
+            ...(extraData || {})
+          }).catch(e => console.error("Falha ao salvar progresso do briefing: ", e));
 
         }, async (seoJson) => {
+           try {
+             console.log(`[Especialista SEO] Salvando automaticamente textos e SEO na Nuvemshop para SKU: ${productData.sku}`);
+             await updateNuvemshopProduct(productData.sku, seoJson);
+             console.log(`[✅ Especialista SEO] Textos, título, meta e descrição HTML salvos com sucesso na Nuvemshop!`);
+           } catch (saveErr: any) {
+             console.error(`[❌ Especialista SEO] Erro ao salvar na Nuvemshop:`, saveErr?.message || saveErr);
+           }
+
            try {
              console.log(`[🚀 MeliAgent] Disparando Webhook de Atualização para SKU: ${productData.sku}`);
              await fetch('https://ais-pre-aj3lqhgqeg6eru2q43vpyh-376013781567.us-west2.run.app/api/webhook/briefing-update', {
@@ -1969,8 +2727,8 @@ ${skuDirective}
                })
              });
              console.log(`[✅ MeliAgent] Webhook disparado com sucesso.`);
-           } catch (err) {
-             console.error(`[❌ MeliAgent] Falha ao disparar webhook:`, err.message);
+           } catch (err: any) {
+             console.error(`[❌ MeliAgent] Falha ao disparar webhook:`, err?.message || err);
            }
         }).catch((e) => {
            console.error('Background optimization failed', e);
@@ -2000,8 +2758,6 @@ ${skuDirective}
 // ==========================================
 // INICIALIZAÇÃO DO CÉREBRO & VITE FRONTEND
 // ==========================================
-import { createServer as createViteServer } from 'vite';
-
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({

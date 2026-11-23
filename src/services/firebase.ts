@@ -59,7 +59,21 @@ function getDb(): ReturnType<typeof getFirestore> | null {
   // Apontando para o banco customizado ou via variável de ambiente
   const defaultDbId = process.env.FIREBASE_DATABASE_ID || '(default)';
   dbInstance = getFirestore(defaultDbId !== '(default)' ? defaultDbId : undefined);
+  try {
+    dbInstance.settings({ ignoreUndefinedProperties: true });
+  } catch {
+    // Firestore já foi inicializado com settings anteriormente
+  }
   return dbInstance;
+}
+
+function stripUndefinedDeep<T>(value: T): T {
+  if (value === null || value === undefined) return value;
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return value;
+  }
 }
 
 const DATA_DIR = path.join(process.cwd(), '.data');
@@ -188,11 +202,11 @@ export const firebaseService = {
    */
   async saveSettings(settings: any) {
     const existing = loadLocalData('settings.json', inMemorySettings) || {};
-    const merged = {
+    const merged = stripUndefinedDeep({
       ...existing,
       ...(settings || {}),
       updatedAt: Date.now()
-    };
+    });
     inMemorySettings = merged;
     saveLocalData('settings.json', merged);
 
@@ -385,14 +399,15 @@ export const firebaseService = {
         updatedAt: Date.now()
       };
 
-      inMemoryBriefings[sku] = merged;
+      const cleanMerged = stripUndefinedDeep(merged);
+      inMemoryBriefings[sku] = cleanMerged;
       saveLocalData('briefings.json', inMemoryBriefings);
 
       const db = getDb();
       if (!db) return;
       try {
         await db.collection('sku_briefings').doc(sku).set({
-          ...merged,
+          ...cleanMerged,
           updatedAt: FieldValue.serverTimestamp()
         }, { merge: true });
         console.log(`[Firebase] Briefing do SKU ${sku} salvo com sucesso.`);

@@ -40,6 +40,12 @@ export interface ComposeArtSlotInput {
   forceSolidAiCompositing?: boolean;
 }
 
+export interface ImageTokenUsage {
+  promptTokenCount: number;
+  candidatesTokenCount: number;
+  totalTokenCount: number;
+}
+
 export interface ComposeArtSlotResult {
   jpgUrl: string;
   webpUrl: string;
@@ -52,6 +58,7 @@ export interface ComposeArtSlotResult {
   renderMode: ArtRenderMode;
   width: number;
   height: number;
+  tokenUsage?: ImageTokenUsage;
 }
 
 export interface RealProductCutout {
@@ -1562,7 +1569,7 @@ async function callGeminiImageModel(
   sourceBuffer: Buffer | null,
   sourceMimeType: string,
   promptText: string
-): Promise<{ imageBuffer: Buffer; modelUsed: string }> {
+): Promise<{ imageBuffer: Buffer; modelUsed: string; tokenUsage?: ImageTokenUsage }> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     const err: any = new Error(
@@ -1610,12 +1617,24 @@ async function callGeminiImageModel(
         },
       });
 
+      const meta = (response as any)?.usageMetadata;
+      const tokenUsage: ImageTokenUsage | undefined = meta
+        ? {
+            promptTokenCount: Number(meta.promptTokenCount) || 0,
+            candidatesTokenCount: Number(meta.candidatesTokenCount) || 0,
+            totalTokenCount:
+              Number(meta.totalTokenCount) ||
+              (Number(meta.promptTokenCount) || 0) + (Number(meta.candidatesTokenCount) || 0),
+          }
+        : undefined;
+
       const parts = response.candidates?.[0]?.content?.parts ?? [];
       for (const part of parts) {
         if (part.inlineData?.data) {
           return {
             imageBuffer: Buffer.from(part.inlineData.data, 'base64'),
             modelUsed: candidate.model,
+            tokenUsage,
           };
         }
       }
@@ -1674,6 +1693,7 @@ export async function generateArtSlotImage(
       renderMode: 'hybrid',
       width: 1200,
       height: 1200,
+      tokenUsage: { promptTokenCount: 0, candidatesTokenCount: 0, totalTokenCount: 0 },
     };
   }
 
@@ -1690,6 +1710,11 @@ export async function generateArtSlotImage(
   let finalPngBuffer: Buffer;
   let cleanSceneToPersist: Buffer | undefined;
   let finalModelLabel = '';
+  let imageTokenUsage: ImageTokenUsage = {
+    promptTokenCount: 0,
+    candidatesTokenCount: 0,
+    totalTokenCount: 0,
+  };
 
   // 3A. SLOT 1 COM RECORTE PIXEL-ORIGINAL (Fidelidade absoluta 100% sem distorção de rótulo pela IA!)
   if (slotNumber === 1 && realCutout) {
@@ -1699,11 +1724,12 @@ export async function generateArtSlotImage(
   // 3B. SLOTS 2-8 HÍBRIDO 2.0 COM RECORTE PIXEL-ORIGINAL + PALCO FOTOGRÁFICO NANO BANANA 2.1
   else if (slotNumber > 1 && renderMode === 'hybrid' && realCutout) {
     const stagePrompt = buildEmptyStagePrompt(hybridScenePrompt, overlay.textPosition);
-    const { imageBuffer: stageRawBuffer, modelUsed } = await callGeminiImageModel(
+    const { imageBuffer: stageRawBuffer, modelUsed, tokenUsage } = await callGeminiImageModel(
       null,
       'image/jpeg',
       stagePrompt
     );
+    if (tokenUsage) imageTokenUsage = tokenUsage;
 
     // Compõe produto real pixel-original + sombra realista sobre o cenário gerado -> salva como *_clean.png
     cleanSceneToPersist = await composeProductOntoStage(
@@ -1745,11 +1771,12 @@ export async function generateArtSlotImage(
           ? `${basePrompt}\n\nABSOLUTE PACKAGING & SAFE-ZONE RULES:\n1. KEEP 100% of ALL original printed text, colored seals, logos, and graphics ON THE PRODUCT PACKAGING completely intact and readable (never erase text that is printed on the product itself).\n2. ${solidOpaqueRule}\n3. ${safeZoneLock[overlay.textPosition]}\n4. DO NOT add any floating promotional text, headlines, callouts, badges, watermarks, or store names in the surrounding scene/background outside the product packaging.`
           : `${basePrompt}\n\nABSOLUTE PACKAGING INTEGRITY RULE: Keep 100% of original printed logos, seals, and labels on the product packaging intact. ${solidOpaqueRule} ${safeZoneLock[overlay.textPosition]}`;
 
-    const { imageBuffer: aiRawBuffer, modelUsed } = await callGeminiImageModel(
+    const { imageBuffer: aiRawBuffer, modelUsed, tokenUsage } = await callGeminiImageModel(
       source.buffer,
       source.mimeType,
       activePrompt
     );
+    if (tokenUsage) imageTokenUsage = tokenUsage;
 
     if (slotNumber === 1) {
       finalPngBuffer = await sharp(aiRawBuffer)
@@ -1794,5 +1821,6 @@ export async function generateArtSlotImage(
     renderMode,
     width: 1200,
     height: 1200,
+    tokenUsage: imageTokenUsage,
   };
 }

@@ -7,6 +7,11 @@ export interface ProductVisualAudit {
   kitMismatchDetected?: boolean;
   kitMismatchNote?: string;
   photosInspected?: number;
+  tokenUsage?: {
+    promptTokenCount: number;
+    candidatesTokenCount: number;
+    totalTokenCount: number;
+  };
 }
 
 export function buildPlannerPrompt(

@@ -459,6 +459,17 @@ Retorne ESTRITAMENTE um JSON puro com este formato:
           ? parsed.verifiedManufacturer.trim()
           : undefined;
 
+      const vMeta = (response as any)?.usageMetadata;
+      const visualTokenUsage = vMeta
+        ? {
+            promptTokenCount: Number(vMeta.promptTokenCount) || 0,
+            candidatesTokenCount: Number(vMeta.candidatesTokenCount) || 0,
+            totalTokenCount:
+              Number(vMeta.totalTokenCount) ||
+              (Number(vMeta.promptTokenCount) || 0) + (Number(vMeta.candidatesTokenCount) || 0),
+          }
+        : undefined;
+
       const audit: ProductVisualAudit = {
         officialBrand: (parsed.officialBrand || productData?.brand || '').trim(),
         verifiedManufacturer: cleanManuf,
@@ -468,10 +479,11 @@ Retorne ESTRITAMENTE um JSON puro com este formato:
         kitMismatchDetected: Boolean(parsed.kitMismatchDetected),
         kitMismatchNote: (parsed.kitMismatchNote || '').trim() || undefined,
         photosInspected,
+        tokenUsage: visualTokenUsage,
       };
 
       console.log(
-        `[👁️ Etapa 0 Vision-First - SKU ${productData?.sku}] Marca="${audit.officialBrand}" | Fabricante="${audit.verifiedManufacturer || 'N/A'}" | Unidades na Foto=${audit.unitsShownInPhoto ?? '?'} | KitMismatch=${audit.kitMismatchDetected}`
+        `[👁️ Etapa 0 Vision-First - SKU ${productData?.sku}] Marca="${audit.officialBrand}" | Fabricante="${audit.verifiedManufacturer || 'N/A'}" | Unidades na Foto=${audit.unitsShownInPhoto ?? '?'} | KitMismatch=${audit.kitMismatchDetected}${visualTokenUsage ? ` | ${visualTokenUsage.totalTokenCount} tokens` : ''}`
       );
       return audit;
     } catch (err: any) {
@@ -712,11 +724,22 @@ Retorne ESTRITAMENTE um JSON puro com este formato:
     });
 
     const parsed = parseSafeJson<Partial<ArtSlotPlan>>(result.text || '{}', currentSlot);
-    return validateAndNormalizeArtSlot(
+    const normalized = validateAndNormalizeArtSlot(
       { ...currentSlot, ...parsed },
       currentSlot.slotNumber,
       Math.max(1, totalValidImages)
     );
+    const revMeta = (result as any)?.usageMetadata;
+    if (revMeta) {
+      (normalized as any)._tokens = {
+        promptTokenCount: Number(revMeta.promptTokenCount) || 0,
+        candidatesTokenCount: Number(revMeta.candidatesTokenCount) || 0,
+        totalTokenCount:
+          Number(revMeta.totalTokenCount) ||
+          (Number(revMeta.promptTokenCount) || 0) + (Number(revMeta.candidatesTokenCount) || 0),
+      };
+    }
+    return normalized;
   },
 
   async runOrchestrationPipeline(
@@ -738,17 +761,38 @@ Retorne ESTRITAMENTE um JSON puro com este formato:
       });
     }
 
+    const normalizeUsage = (u: any) => ({
+      promptTokenCount: Number(u?.promptTokenCount) || 0,
+      candidatesTokenCount: Number(u?.candidatesTokenCount) || 0,
+      totalTokenCount:
+        Number(u?.totalTokenCount) ||
+        (Number(u?.promptTokenCount) || 0) + (Number(u?.candidatesTokenCount) || 0),
+    });
+
+    const tokenAuditMap: Record<string, { promptTokenCount: number; candidatesTokenCount: number; totalTokenCount: number }> = {};
+    if (visualAudit?.tokenUsage) {
+      tokenAuditMap['visualAudit'] = normalizeUsage(visualAudit.tokenUsage);
+    }
+
     // 1. Extração de Dados Reais (Background)
     let realTrends = '';
     let realQuotes = '';
     let quotesDataObj: any = null;
     try {
       const trendsData = await this.searchMarketplaceTrends(productData.name);
+      if ((trendsData as any)?._tokens) {
+        tokenAuditMap['trends'] = normalizeUsage((trendsData as any)._tokens);
+        delete (trendsData as any)._tokens;
+      }
       realTrends = JSON.stringify(trendsData);
     } catch { realTrends = 'Não foi possível buscar tendências em tempo real.'; }
 
     try {
       quotesDataObj = await this.searchProductQuotes(productData.name);
+      if ((quotesDataObj as any)?._tokens) {
+        tokenAuditMap['quotes'] = normalizeUsage((quotesDataObj as any)._tokens);
+        delete (quotesDataObj as any)._tokens;
+      }
       realQuotes = JSON.stringify(quotesDataObj);
     } catch { realQuotes = 'Não foi possível buscar cotações em tempo real.'; }
 
@@ -756,8 +800,10 @@ Retorne ESTRITAMENTE um JSON puro com este formato:
     console.log(`🚀 [INÍCIO DA ESTEIRA PADRÃO AGÊNCIA - SKU: ${productData.sku}]`);
     console.log(`================================================================`);
 
-    let totalPipelineTokens = 0;
-    const tokenAuditMap: Record<string, any> = {};
+    let totalPipelineTokens =
+      (tokenAuditMap['visualAudit']?.totalTokenCount || 0) +
+      (tokenAuditMap['trends']?.totalTokenCount || 0) +
+      (tokenAuditMap['quotes']?.totalTokenCount || 0);
 
     // ETAPA 1: Pesquisador de Mercado (Planner) — agora ancorado na Auditoria Visual real
     const plannerPrompt = buildPlannerPrompt(productData, realTrends, visualAudit);
@@ -767,9 +813,10 @@ Retorne ESTRITAMENTE um JSON puro com este formato:
     });
     const plannerResponse = plannerResult.text || '';
     if (plannerResult.usageMetadata) {
-      totalPipelineTokens += plannerResult.usageMetadata.totalTokenCount || 0;
-      tokenAuditMap['planner'] = plannerResult.usageMetadata;
-      console.log(`[📊 Token Audit] 1. Pesquisador (Planner): ${plannerResult.usageMetadata.totalTokenCount} tokens`);
+      const u = normalizeUsage(plannerResult.usageMetadata);
+      totalPipelineTokens += u.totalTokenCount;
+      tokenAuditMap['planner'] = u;
+      console.log(`[📊 Token Audit] 1. Pesquisador (Planner): ${u.totalTokenCount} tokens`);
     }
     if (onStepComplete) onStepComplete('planner', plannerPrompt, plannerResponse);
 
@@ -785,9 +832,10 @@ Retorne ESTRITAMENTE um JSON puro com este formato:
     });
     const monitorResponse = monitorResult.text || '';
     if (monitorResult.usageMetadata) {
-      totalPipelineTokens += monitorResult.usageMetadata.totalTokenCount || 0;
-      tokenAuditMap['monitor'] = monitorResult.usageMetadata;
-      console.log(`[📊 Token Audit] 2. Monitor de Concorrência: ${monitorResult.usageMetadata.totalTokenCount} tokens`);
+      const u = normalizeUsage(monitorResult.usageMetadata);
+      totalPipelineTokens += u.totalTokenCount;
+      tokenAuditMap['monitor'] = u;
+      console.log(`[📊 Token Audit] 2. Monitor de Concorrência: ${u.totalTokenCount} tokens`);
     }
     if (onStepComplete) onStepComplete('monitor', monitorPrompt, monitorResponse);
 
@@ -818,9 +866,10 @@ Retorne ESTRITAMENTE um JSON puro com este formato:
     const officialBrand = managerOut.briefing.officialBrand || detectedBrand;
 
     if (managerOut.usage) {
-      totalPipelineTokens += managerOut.usage.totalTokenCount || 0;
-      tokenAuditMap['manager'] = managerOut.usage;
-      console.log(`[📊 Token Audit] 3. Gerente de Projetos (Briefing Estratégico): ${managerOut.usage.totalTokenCount} tokens`);
+      const u = normalizeUsage(managerOut.usage);
+      totalPipelineTokens += u.totalTokenCount;
+      tokenAuditMap['manager'] = u;
+      console.log(`[📊 Token Audit] 3. Gerente de Projetos (Briefing Estratégico): ${u.totalTokenCount} tokens`);
     }
     if (onStepComplete) {
       onStepComplete('manager', managerOut.prompt, managerOut.markdown, {
@@ -849,9 +898,10 @@ Retorne ESTRITAMENTE um JSON puro com este formato:
     }
 
     if (artOut.usage) {
-      totalPipelineTokens += artOut.usage.totalTokenCount || 0;
-      tokenAuditMap['art'] = artOut.usage;
-      console.log(`[📊 Token Audit] 4. Diretor de Arte Multimodal (8 Slots): ${artOut.usage.totalTokenCount} tokens`);
+      const u = normalizeUsage(artOut.usage);
+      totalPipelineTokens += u.totalTokenCount;
+      tokenAuditMap['art'] = u;
+      console.log(`[📊 Token Audit] 4. Diretor de Arte Multimodal (8 Slots): ${u.totalTokenCount} tokens`);
     }
     if (onStepComplete) {
       onStepComplete('art', artOut.prompt, artOut.markdown, {
@@ -888,9 +938,10 @@ ${seoSystemContext}`;
     const seoJson = await this.generateProductSEO({ ...productData, brand: officialBrand }, seoSystemContext);
     const seoTokens = (seoJson as any)?._tokens;
     if (seoTokens) {
-      totalPipelineTokens += seoTokens.totalTokenCount || 0;
-      tokenAuditMap['seo'] = seoTokens;
-      console.log(`[📊 Token Audit] 5. Especialista SEO: ${seoTokens.totalTokenCount} tokens`);
+      const u = normalizeUsage(seoTokens);
+      totalPipelineTokens += u.totalTokenCount;
+      tokenAuditMap['seo'] = u;
+      console.log(`[📊 Token Audit] 5. Especialista SEO: ${u.totalTokenCount} tokens`);
     }
 
     // TRAVA COMERCIAL DE SEGURANÇA (Preço/Kit Sanity Guard):
@@ -955,24 +1006,72 @@ ${seoSystemContext}`;
       2
     );
 
+    const phase1PromptTokens = Object.values(tokenAuditMap).reduce(
+      (sum, u) => sum + (Number(u?.promptTokenCount) || 0),
+      0
+    );
+    const phase1OutputTokens = Object.values(tokenAuditMap).reduce(
+      (sum, u) => sum + (Number(u?.candidatesTokenCount) || 0),
+      0
+    );
+    const phase1CallsCount = Object.values(tokenAuditMap).filter((u) => (Number(u?.totalTokenCount) || 0) > 0).length;
+
+    const phase1TokenAudit = {
+      sku: productData.sku,
+      startedAt: Date.now(),
+      updatedAt: Date.now(),
+      phase1: {
+        visualAudit: tokenAuditMap['visualAudit']?.totalTokenCount || 0,
+        trends: tokenAuditMap['trends']?.totalTokenCount || 0,
+        quotes: tokenAuditMap['quotes']?.totalTokenCount || 0,
+        planner: tokenAuditMap['planner']?.totalTokenCount || 0,
+        monitor: tokenAuditMap['monitor']?.totalTokenCount || 0,
+        manager: tokenAuditMap['manager']?.totalTokenCount || 0,
+        artPlan: tokenAuditMap['art']?.totalTokenCount || 0,
+        seo: tokenAuditMap['seo']?.totalTokenCount || 0,
+        subtotalTokens: totalPipelineTokens,
+        promptTokens: phase1PromptTokens,
+        outputTokens: phase1OutputTokens,
+        callsCount: phase1CallsCount,
+      },
+      phase2: {
+        imagesTokens: 0,
+        imagesPromptTokens: 0,
+        imagesOutputTokens: 0,
+        imagesGeneratedCount: 0,
+        revisionsTokens: 0,
+        revisionsPromptTokens: 0,
+        revisionsOutputTokens: 0,
+        revisionsCount: 0,
+        subtotalTokens: 0,
+        slots: {} as Record<string, { tokens: number; runs: number; model: string }>,
+      },
+      webhooks: {
+        nuvemshopSeo: !commercialAlert?.blockedAutoSave && Boolean(saveProductCallback),
+        meliAgent: !commercialAlert?.blockedAutoSave && Boolean(saveProductCallback),
+        nuvemshopImagesApproved: false,
+        approvedSlotsCount: 0,
+        lastWebhookAt: !commercialAlert?.blockedAutoSave && Boolean(saveProductCallback) ? Date.now() : null,
+      },
+      grandTotalTokens: totalPipelineTokens,
+      grandTotalPromptTokens: phase1PromptTokens,
+      grandTotalOutputTokens: phase1OutputTokens,
+      grandTotalAiCalls: phase1CallsCount,
+    };
+
     if (onStepComplete) {
       onStepComplete('seo', seoPrompt, seoResponsePayloadJSON, {
         seoData: seoJson,
         commercialAlert: commercialAlert || null,
         visualAudit,
+        tokenAudit: phase1TokenAudit,
         finishedAt: Date.now(),
       });
     }
 
-    console.log(`\n================================================================`);
-    console.log(`🏁 [AUDITORIA DE TOKENS DA ESTEIRA PADRÃO AGÊNCIA - SKU: ${productData.sku}]`);
-    console.log(`  1. Pesquisador (Planner):      ${tokenAuditMap['planner']?.totalTokenCount || 0} tokens`);
-    console.log(`  2. Monitor de Concorrência:    ${tokenAuditMap['monitor']?.totalTokenCount || 0} tokens`);
-    console.log(`  3. Gerente (Briefing Mestre):  ${tokenAuditMap['manager']?.totalTokenCount || 0} tokens`);
-    console.log(`  4. Diretor de Arte Multimodal: ${tokenAuditMap['art']?.totalTokenCount || 0} tokens`);
-    console.log(`  5. Especialista SEO:           ${tokenAuditMap['seo']?.totalTokenCount || 0} tokens`);
-    console.log(`  🔥 TOTAL GASTO NA ESTEIRA:     ${totalPipelineTokens} TOKENS`);
-    console.log(`================================================================\n`);
+    console.log(
+      `[📊 Subtotal Fase 1 (Texto/Briefing/SEO) - SKU: ${productData.sku}]: ${totalPipelineTokens.toLocaleString('pt-BR')} tokens (aguardando geração das 8 imagens e webhooks para o Relatório Final Consolidado).`
+    );
   },
 
   async generateViralContent(productData: any, platform: string) {
@@ -1068,7 +1167,11 @@ Retorne ESTRITAMENTE um JSON puro no seguinte formato (invente dados realistas e
           }
         }
       });
-      return JSON.parse(response.text || '{}');
+      const parsedTrends = JSON.parse(response.text || '{}');
+      if (response.usageMetadata) {
+        parsedTrends._tokens = response.usageMetadata;
+      }
+      return parsedTrends;
     } catch (err: any) {
       console.error('Erro ao buscar tendências:', err);
       throw err;
@@ -1134,7 +1237,11 @@ Retorne ESTRITAMENTE um JSON puro no seguinte formato (invente dados extremament
           }
         }
       });
-      return JSON.parse(response.text || '{}');
+      const parsedQuotes = JSON.parse(response.text || '{}');
+      if (response.usageMetadata) {
+        parsedQuotes._tokens = response.usageMetadata;
+      }
+      return parsedQuotes;
     } catch (err: any) {
       console.error('Erro ao buscar cotações:', err);
       throw err;

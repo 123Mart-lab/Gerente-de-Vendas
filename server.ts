@@ -31,6 +31,167 @@ interface OrchestrationJobState {
   promise: Promise<void>;
 }
 
+interface SkuTokenAudit {
+  sku: string;
+  startedAt: number;
+  updatedAt: number;
+  phase1: {
+    visualAudit: number;
+    trends: number;
+    quotes: number;
+    planner: number;
+    monitor: number;
+    manager: number;
+    artPlan: number;
+    seo: number;
+    subtotalTokens: number;
+    promptTokens: number;
+    outputTokens: number;
+    callsCount: number;
+  };
+  phase2: {
+    imagesTokens: number;
+    imagesPromptTokens: number;
+    imagesOutputTokens: number;
+    imagesGeneratedCount: number;
+    revisionsTokens: number;
+    revisionsPromptTokens: number;
+    revisionsOutputTokens: number;
+    revisionsCount: number;
+    subtotalTokens: number;
+    slots: Record<string, { tokens: number; runs: number; model: string }>;
+  };
+  webhooks: {
+    nuvemshopSeo: boolean;
+    meliAgent: boolean;
+    nuvemshopImagesApproved: boolean;
+    approvedSlotsCount: number;
+    lastWebhookAt: number | null;
+  };
+  grandTotalTokens: number;
+  grandTotalPromptTokens: number;
+  grandTotalOutputTokens: number;
+  grandTotalAiCalls: number;
+}
+
+function ensureSkuTokenAudit(sku: string, existing?: any): SkuTokenAudit {
+  const now = Date.now();
+  const base: SkuTokenAudit = {
+    sku,
+    startedAt: Number(existing?.startedAt) || now,
+    updatedAt: now,
+    phase1: {
+      visualAudit: Number(existing?.phase1?.visualAudit) || 0,
+      trends: Number(existing?.phase1?.trends) || 0,
+      quotes: Number(existing?.phase1?.quotes) || 0,
+      planner: Number(existing?.phase1?.planner) || 0,
+      monitor: Number(existing?.phase1?.monitor) || 0,
+      manager: Number(existing?.phase1?.manager) || 0,
+      artPlan: Number(existing?.phase1?.artPlan) || 0,
+      seo: Number(existing?.phase1?.seo) || 0,
+      subtotalTokens: Number(existing?.phase1?.subtotalTokens) || 0,
+      promptTokens: Number(existing?.phase1?.promptTokens) || 0,
+      outputTokens: Number(existing?.phase1?.outputTokens) || 0,
+      callsCount: Number(existing?.phase1?.callsCount) || 0,
+    },
+    phase2: {
+      imagesTokens: Number(existing?.phase2?.imagesTokens) || 0,
+      imagesPromptTokens: Number(existing?.phase2?.imagesPromptTokens) || 0,
+      imagesOutputTokens: Number(existing?.phase2?.imagesOutputTokens) || 0,
+      imagesGeneratedCount: Number(existing?.phase2?.imagesGeneratedCount) || 0,
+      revisionsTokens: Number(existing?.phase2?.revisionsTokens) || 0,
+      revisionsPromptTokens: Number(existing?.phase2?.revisionsPromptTokens) || 0,
+      revisionsOutputTokens: Number(existing?.phase2?.revisionsOutputTokens) || 0,
+      revisionsCount: Number(existing?.phase2?.revisionsCount) || 0,
+      subtotalTokens: Number(existing?.phase2?.subtotalTokens) || 0,
+      slots: existing?.phase2?.slots && typeof existing.phase2.slots === 'object'
+        ? JSON.parse(JSON.stringify(existing.phase2.slots))
+        : {},
+    },
+    webhooks: {
+      nuvemshopSeo: Boolean(existing?.webhooks?.nuvemshopSeo),
+      meliAgent: Boolean(existing?.webhooks?.meliAgent),
+      nuvemshopImagesApproved: Boolean(existing?.webhooks?.nuvemshopImagesApproved),
+      approvedSlotsCount: Number(existing?.webhooks?.approvedSlotsCount) || 0,
+      lastWebhookAt: existing?.webhooks?.lastWebhookAt ? Number(existing.webhooks.lastWebhookAt) : null,
+    },
+    grandTotalTokens: 0,
+    grandTotalPromptTokens: 0,
+    grandTotalOutputTokens: 0,
+    grandTotalAiCalls: 0,
+  };
+  return recalculateTokenAuditTotals(base);
+}
+
+function recalculateTokenAuditTotals(audit: SkuTokenAudit): SkuTokenAudit {
+  const p1Sum =
+    audit.phase1.visualAudit +
+    audit.phase1.trends +
+    audit.phase1.quotes +
+    audit.phase1.planner +
+    audit.phase1.monitor +
+    audit.phase1.manager +
+    audit.phase1.artPlan +
+    audit.phase1.seo;
+  audit.phase1.subtotalTokens = Math.max(audit.phase1.subtotalTokens, p1Sum);
+  audit.phase2.subtotalTokens = audit.phase2.imagesTokens + audit.phase2.revisionsTokens;
+  audit.grandTotalTokens = audit.phase1.subtotalTokens + audit.phase2.subtotalTokens;
+  audit.grandTotalPromptTokens =
+    audit.phase1.promptTokens + audit.phase2.imagesPromptTokens + audit.phase2.revisionsPromptTokens;
+  audit.grandTotalOutputTokens =
+    audit.phase1.outputTokens + audit.phase2.imagesOutputTokens + audit.phase2.revisionsOutputTokens;
+  audit.grandTotalAiCalls =
+    audit.phase1.callsCount + audit.phase2.imagesGeneratedCount + audit.phase2.revisionsCount;
+  audit.updatedAt = Date.now();
+  return audit;
+}
+
+function printSkuTokenAuditReport(sku: string, rawAudit: any, triggerLabel: string) {
+  const audit = ensureSkuTokenAudit(sku, rawAudit);
+  const fmt = (n: number) => Number(n || 0).toLocaleString('pt-BR');
+  const padLabel = (label: string) => label.padEnd(42, ' ');
+
+  console.log(`\n========================================================================`);
+  console.log(`🏁 [RELATÓRIO FINAL CONSOLIDADO DE TOKENS - SKU: ${sku}]`);
+  console.log(`📌 Marco: ${triggerLabel}`);
+  console.log(`------------------------------------------------------------------------`);
+  console.log(`📋 FASE 1 — Inteligência, Briefing, Plano Visual & SEO:`);
+  console.log(`   ${padLabel('0. Auditoria Visual (Rótulo Real):')}${fmt(audit.phase1.visualAudit)} tokens`);
+  if (audit.phase1.trends > 0 || audit.phase1.quotes > 0) {
+    console.log(`   ${padLabel('   • Pesquisa Mercado (Trends/Cotações):')}${fmt(audit.phase1.trends + audit.phase1.quotes)} tokens`);
+  }
+  console.log(`   ${padLabel('1. Pesquisador (Planner):')}${fmt(audit.phase1.planner)} tokens`);
+  console.log(`   ${padLabel('2. Monitor de Concorrência:')}${fmt(audit.phase1.monitor)} tokens`);
+  console.log(`   ${padLabel('3. Gerente (Briefing Mestre):')}${fmt(audit.phase1.manager)} tokens`);
+  console.log(`   ${padLabel('4. Diretor de Arte (Plano 8 Slots):')}${fmt(audit.phase1.artPlan)} tokens`);
+  console.log(`   ${padLabel('5. Especialista SEO:')}${fmt(audit.phase1.seo)} tokens`);
+  console.log(`   ${padLabel('➤ SUBTOTAL FASE 1:')}${fmt(audit.phase1.subtotalTokens)} tokens (${audit.phase1.callsCount} chamadas)`);
+  console.log(`------------------------------------------------------------------------`);
+  console.log(`🎨 FASE 2 — Geração & Recriação das Imagens (Slots 1 a 8):`);
+  for (let s = 1; s <= 8; s++) {
+    const slotInfo = audit.phase2.slots[String(s)];
+    if (slotInfo) {
+      const runTag = slotInfo.runs > 1 ? `${slotInfo.runs}x` : '1x';
+      console.log(`   ${padLabel(`   • Slot ${s} (${runTag} • ${slotInfo.model}):`)}${fmt(slotInfo.tokens)} tokens`);
+    } else {
+      console.log(`   ${padLabel(`   • Slot ${s}:`)}— (não gerado)`);
+    }
+  }
+  if (audit.phase2.revisionsCount > 0 || audit.phase2.revisionsTokens > 0) {
+    console.log(`   ${padLabel(`   • Revisões de Prompt (${audit.phase2.revisionsCount}x):`)}${fmt(audit.phase2.revisionsTokens)} tokens`);
+  }
+  console.log(`   ${padLabel('➤ SUBTOTAL FASE 2 (Imagens + Revisões):')}${fmt(audit.phase2.subtotalTokens)} tokens (${audit.phase2.imagesGeneratedCount} gerações IA)`);
+  console.log(`------------------------------------------------------------------------`);
+  console.log(`🚀 FASE 3 — Webhooks & Publicações:`);
+  console.log(`   • SEO Nuvemshop:      ${audit.webhooks.nuvemshopSeo ? '✅ Salvo na loja' : '⏳ Pendente'}`);
+  console.log(`   • Webhook MeliAgent:  ${audit.webhooks.meliAgent ? '✅ Disparado' : '⏳ Pendente'}`);
+  console.log(`   • Galeria Nuvemshop:  ${audit.webhooks.nuvemshopImagesApproved ? '✅ 8/8 Aprovadas e Salvas' : `⏳ ${audit.webhooks.approvedSlotsCount}/8 aprovadas`}`);
+  console.log(`------------------------------------------------------------------------`);
+  console.log(`🔥 TOTAL GERAL GASTO PARA MELHORAR O SKU ${sku}: ${fmt(audit.grandTotalTokens)} TOKENS`);
+  console.log(`   📥 Input: ${fmt(audit.grandTotalPromptTokens)} tokens  |  📤 Output: ${fmt(audit.grandTotalOutputTokens)} tokens  |  🤖 Chamadas IA: ${audit.grandTotalAiCalls}`);
+  console.log(`========================================================================\n`);
+}
+
 const orchestrationJobs = new Map<string, OrchestrationJobState>();
 
 const app = express();
@@ -485,13 +646,26 @@ app.post('/api/marketing/webhook-seo-publish', async (req, res) => {
         ? { ...briefing.commercialAlert, blockedAutoSave: false, manualOverrideApproved: true }
         : undefined;
 
+      const updatedTokenAudit = ensureSkuTokenAudit(targetSku, briefing.tokenAudit);
+      updatedTokenAudit.webhooks.nuvemshopSeo = updatedTokenAudit.webhooks.nuvemshopSeo || nuvemshopUpdated;
+      updatedTokenAudit.webhooks.meliAgent = updatedTokenAudit.webhooks.meliAgent || meliWebhookSent;
+      updatedTokenAudit.webhooks.lastWebhookAt = Date.now();
+      recalculateTokenAuditTotals(updatedTokenAudit);
+
       await firebaseService.saveSkuBriefing(targetSku, {
         ...briefing,
         sku: targetSku,
         steps: updatedSteps,
         ...(nextCommercialAlert ? { commercialAlert: nextCommercialAlert } : {}),
+        tokenAudit: updatedTokenAudit,
         lastPublishedAt: Date.now()
       }).catch((e) => console.error('Falha ao atualizar briefing após webhook SEO:', e));
+
+      printSkuTokenAuditReport(
+        targetSku,
+        updatedTokenAudit,
+        `Webhooks Finais Disparados (Nuvemshop SEO: ${nuvemshopUpdated ? 'OK' : 'Aviso'} | MeliAgent: ${meliWebhookSent ? 'OK' : 'Aviso'})`
+      );
     }
 
     // 7. Registra auditoria real no histórico de tarefas
@@ -1136,7 +1310,19 @@ app.post('/api/marketing/art-approvals/:sku', async (req, res) => {
       if (existing.steps && existing.steps[6]) {
         existing.steps[6].isCompleted = isAllDone;
       }
+      const nextTokenAudit = ensureSkuTokenAudit(sku, existing.tokenAudit);
+      nextTokenAudit.webhooks.approvedSlotsCount = normalizedApproved.length;
+      nextTokenAudit.webhooks.nuvemshopImagesApproved = isAllDone;
+      if (isAllDone) {
+        nextTokenAudit.webhooks.lastWebhookAt = Date.now();
+      }
+      recalculateTokenAuditTotals(nextTokenAudit);
+      existing.tokenAudit = nextTokenAudit;
       await firebaseService.saveSkuBriefing(sku, existing);
+
+      if (isAllDone) {
+        printSkuTokenAuditReport(sku, nextTokenAudit, 'Galeria 8/8 Aprovada e Finalizada na Nuvemshop');
+      }
     }
   } catch (e) {
     console.error('Erro ao sincronizar aprovação no briefing:', e);
@@ -1439,6 +1625,31 @@ app.post('/api/marketing/nuvemshop/save-slot-image', async (req, res) => {
       evolutionPercentage: 50
     });
 
+    try {
+      const allBriefings = await firebaseService.getSkuBriefings();
+      const existing = allBriefings.find((b: any) => String(b?.sku || '').toLowerCase() === resolvedSku.toLowerCase()) as any;
+      if (existing) {
+        const nextTokenAudit = ensureSkuTokenAudit(resolvedSku, existing.tokenAudit);
+        nextTokenAudit.webhooks.approvedSlotsCount = artApprovals[resolvedSku].approvedSlots.length;
+        nextTokenAudit.webhooks.nuvemshopImagesApproved = isNowAll;
+        if (savedToNuvemshop) {
+          nextTokenAudit.webhooks.lastWebhookAt = Date.now();
+        }
+        recalculateTokenAuditTotals(nextTokenAudit);
+        existing.tokenAudit = nextTokenAudit;
+        if (isNowAll) {
+          existing.artApproved = true;
+          if (existing.steps && existing.steps[6]) {
+            existing.steps[6].isCompleted = true;
+          }
+        }
+        await firebaseService.saveSkuBriefing(resolvedSku, existing);
+        if (isNowAll) {
+          printSkuTokenAuditReport(resolvedSku, nextTokenAudit, 'Galeria 8/8 Aprovada & Salva na Nuvemshop');
+        }
+      }
+    } catch (bErr) {}
+
     if (isNowAll) {
       const completionMessage = `🚨 [DIRETOR DE ARTE] AVISO AO GERENTE DE VENDAS E PROJETOS:\nTodas as 8 imagens do SKU ${resolvedSku} foram aprovadas pela Diretoria e salvas com sucesso no anúncio da Nuvemshop (Posições 1 a 8).\nMinha tarefa na esteira foi FINALIZADA com 100% de conformidade! O anúncio agora conta com a capa oficial e todos os ângulos comerciais integrados.`;
 
@@ -1447,18 +1658,6 @@ app.post('/api/marketing/nuvemshop/save-slot-image', async (req, res) => {
         'art',
         'gerente'
       );
-
-      try {
-        const allBriefings = await firebaseService.getSkuBriefings();
-        const existing = allBriefings.find((b: any) => b.sku === resolvedSku) as any;
-        if (existing) {
-          existing.artApproved = true;
-          if (existing.steps && existing.steps[6]) {
-            existing.steps[6].isCompleted = true;
-          }
-          await firebaseService.saveSkuBriefing(resolvedSku, existing);
-        }
-      } catch (bErr) {}
     }
 
     res.json({
@@ -1560,14 +1759,20 @@ app.post('/api/marketing/art/plan', async (req, res) => {
     let managerMarkdown = existing?.manager || '';
 
     // 3. Padrão Agência: se o Gerente ainda não produziu o Briefing Mestre Estratégico, gera agora antes do Diretor de Arte
+    let refreshedVisualAuditTokens: any = null;
+    let refreshedManagerTokens: any = null;
     if (!managerBriefing || forceRefreshManager) {
       const visualAudit = existing?.visualAudit || (await aiService.inspectProductPackaging(productData));
+      if (!existing?.visualAudit && visualAudit?.tokenUsage) {
+        refreshedVisualAuditTokens = visualAudit.tokenUsage;
+      }
       const plannerSummary = (existing?.planner || '').slice(0, 1500);
       const monitorSummary = (existing?.monitor || '').slice(0, 1200);
       const officialBrand = (visualAudit?.officialBrand || productData.brand || existing?.officialBrand || 'Marca Oficial Homologada').trim();
       const mgrOut = await aiService.generateManagerBriefing(productData, plannerSummary, monitorSummary, officialBrand, visualAudit);
       managerBriefing = mgrOut.briefing;
       managerMarkdown = mgrOut.markdown;
+      refreshedManagerTokens = mgrOut.usage;
     }
 
     // 4. Diretor de Arte Multimodal analisa TODAS as fotos reais + Briefing Estratégico do Gerente
@@ -1585,6 +1790,22 @@ app.post('/api/marketing/art/plan', async (req, res) => {
       );
     }
 
+    // Atualiza contador de tokens do SKU com esta regeneração do plano visual
+    const nextTokenAudit = ensureSkuTokenAudit(resolvedSku, existing?.tokenAudit);
+    const addPlanUsage = (u: any, bucket: 'visualAudit' | 'manager' | 'artPlan') => {
+      if (!u) return;
+      const tot = Number(u.totalTokenCount) || (Number(u.promptTokenCount) || 0) + (Number(u.candidatesTokenCount) || 0);
+      if (tot <= 0) return;
+      nextTokenAudit.phase1[bucket] += tot;
+      nextTokenAudit.phase1.promptTokens += Number(u.promptTokenCount) || 0;
+      nextTokenAudit.phase1.outputTokens += Number(u.candidatesTokenCount) || 0;
+      nextTokenAudit.phase1.callsCount += 1;
+    };
+    addPlanUsage(refreshedVisualAuditTokens, 'visualAudit');
+    addPlanUsage(refreshedManagerTokens, 'manager');
+    addPlanUsage(artOut.usage, 'artPlan');
+    recalculateTokenAuditTotals(nextTokenAudit);
+
     // Novo plano visual reseta aprovações antigas para evitar publicar presets legados sem gerar Híbrido 2.0
     const resetApprovals = { approvedSlots: [], keptPreviousSlots: [], allApproved: false };
     artApprovals[resolvedSku] = resetApprovals;
@@ -1600,6 +1821,7 @@ app.post('/api/marketing/art/plan', async (req, res) => {
       artPlanGeneratedAt: Date.now(),
       artApprovals: resetApprovals,
       artApproved: false,
+      tokenAudit: nextTokenAudit,
     });
 
     const dateStr = new Date().toLocaleDateString('pt-BR') + ' ' + new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
@@ -1796,6 +2018,7 @@ app.post('/api/marketing/ai/recreate-image', async (req, res) => {
 
     // 3. Se o usuário digitou instruções criativas e NÃO é apenas edição rápida de texto,
     // o Diretor de Arte revisa o prompt técnico e os textos curtos PT-BR sem erros de grafia!
+    let revisionTokenUsage: { promptTokenCount: number; candidatesTokenCount: number; totalTokenCount: number } | null = null;
     if (cleanUserText && !overlayOnly) {
       try {
         workingSlot = await aiService.reviseArtSlotPlan(
@@ -1805,6 +2028,10 @@ app.post('/api/marketing/ai/recreate-image', async (req, res) => {
           officialBrand,
           Math.max(1, validAvailableImages.length)
         );
+        if ((workingSlot as any)?._tokens) {
+          revisionTokenUsage = (workingSlot as any)._tokens;
+          delete (workingSlot as any)._tokens;
+        }
       } catch (revErr: any) {
         console.warn('[Diretor de Arte] Falha ao revisar prompt via LLM, incorporando instrução diretamente:', revErr?.message);
         workingSlot = {
@@ -1889,10 +2116,30 @@ app.post('/api/marketing/ai/recreate-image', async (req, res) => {
       forceSolidAiCompositing: userRequestedSolidCompositing,
     });
 
-    // 6. Persiste resultado e plano atualizado no briefing do SKU (sobrevive a recarregamentos)
+    // 6. Persiste resultado, auditoria de tokens e plano atualizado no briefing do SKU (sobrevive a recarregamentos)
+    // Re-lê o briefing mais recente do disco antes do merge para não perder tokens ou slots gerados em paralelo.
+    let latestBriefing: any = existingBriefing;
+    try {
+      const freshBriefings = await firebaseService.getSkuBriefings();
+      const freshMatch = (freshBriefings || []).find(
+        (b: any) => String(b?.sku || '').toLowerCase() === resolvedSku.toLowerCase()
+      );
+      if (freshMatch) latestBriefing = freshMatch;
+    } catch {}
+
+    const prevGeneratedSlots = latestBriefing?.generatedSlots || existingBriefing?.generatedSlots || {};
+    const runCutoffTs = Number(latestBriefing?.artPlanGeneratedAt || latestBriefing?.startedAt || 0);
+    const isSlotFromCurrentRun = (slotsMap: Record<string, any>, n: number) => {
+      const entry = slotsMap?.[String(n)];
+      if (!entry) return false;
+      if (!runCutoffTs) return true;
+      return (Number(entry.updatedAt) || 0) >= runCutoffTs;
+    };
+    const hadAll8Before = [1, 2, 3, 4, 5, 6, 7, 8].every((n) => isSlotFromCurrentRun(prevGeneratedSlots, n));
+
     const timestamp = Date.now();
     const updatedGeneratedSlots = {
-      ...(existingBriefing?.generatedSlots || {}),
+      ...prevGeneratedSlots,
       [String(resolvedSlotNum)]: {
         slotNumber: resolvedSlotNum,
         jpgUrl: composed.jpgUrl,
@@ -1908,10 +2155,44 @@ app.post('/api/marketing/ai/recreate-image', async (req, res) => {
       },
     };
 
-    const updatedArtPlan = existingBriefing?.artPlan
+    const nextTokenAudit = ensureSkuTokenAudit(resolvedSku, latestBriefing?.tokenAudit || existingBriefing?.tokenAudit);
+    const imgTokTotal = Number(composed.tokenUsage?.totalTokenCount) || 0;
+    const imgTokPrompt = Number(composed.tokenUsage?.promptTokenCount) || 0;
+    const imgTokOutput = Number(composed.tokenUsage?.candidatesTokenCount) || 0;
+    const revTokTotal = Number(revisionTokenUsage?.totalTokenCount) || 0;
+    const revTokPrompt = Number(revisionTokenUsage?.promptTokenCount) || 0;
+    const revTokOutput = Number(revisionTokenUsage?.candidatesTokenCount) || 0;
+
+    if (imgTokTotal > 0) {
+      nextTokenAudit.phase2.imagesTokens += imgTokTotal;
+      nextTokenAudit.phase2.imagesPromptTokens += imgTokPrompt;
+      nextTokenAudit.phase2.imagesOutputTokens += imgTokOutput;
+      nextTokenAudit.phase2.imagesGeneratedCount += 1;
+    }
+    if (revTokTotal > 0) {
+      nextTokenAudit.phase2.revisionsTokens += revTokTotal;
+      nextTokenAudit.phase2.revisionsPromptTokens += revTokPrompt;
+      nextTokenAudit.phase2.revisionsOutputTokens += revTokOutput;
+      nextTokenAudit.phase2.revisionsCount += 1;
+    }
+
+    const slotKey = String(resolvedSlotNum);
+    const prevSlotAudit = nextTokenAudit.phase2.slots[slotKey];
+    nextTokenAudit.phase2.slots[slotKey] = {
+      tokens: (prevSlotAudit?.tokens || 0) + imgTokTotal,
+      runs: (prevSlotAudit?.runs || 0) + 1,
+      model: composed.modelUsed || prevSlotAudit?.model || 'gemini-image',
+    };
+    recalculateTokenAuditTotals(nextTokenAudit);
+
+    console.log(
+      `[📊 Token Audit] Imagem Slot ${resolvedSlotNum} (${composed.modelUsed}): ${imgTokTotal} tokens${revTokTotal > 0 ? ` (+ ${revTokTotal} tokens revisão de prompt)` : ''} | Acumulado SKU: ${nextTokenAudit.grandTotalTokens.toLocaleString('pt-BR')} tokens`
+    );
+
+    const updatedArtPlan = (latestBriefing?.artPlan || existingBriefing?.artPlan)
       ? {
-          ...existingBriefing.artPlan,
-          slots: (existingBriefing.artPlan.slots || []).map((s: ArtSlotPlan) =>
+          ...(latestBriefing?.artPlan || existingBriefing?.artPlan),
+          slots: ((latestBriefing?.artPlan || existingBriefing?.artPlan).slots || []).map((s: ArtSlotPlan) =>
             Number(s.slotNumber) === resolvedSlotNum ? workingSlot : s
           ),
         }
@@ -1920,8 +2201,17 @@ app.post('/api/marketing/ai/recreate-image', async (req, res) => {
     await firebaseService.saveSkuBriefing(resolvedSku, {
       sku: resolvedSku,
       generatedSlots: updatedGeneratedSlots,
+      tokenAudit: nextTokenAudit,
       ...(updatedArtPlan ? { artPlan: updatedArtPlan } : {}),
     });
+
+    const hasAll8Now = [1, 2, 3, 4, 5, 6, 7, 8].every((n) => isSlotFromCurrentRun(updatedGeneratedSlots, n));
+    if (hasAll8Now) {
+      const triggerLabel = !hadAll8Before
+        ? 'Esteira Completa — 8/8 Imagens Geradas + Webhooks Fase 1'
+        : `Slot ${resolvedSlotNum} Recriado (Total Atualizado do SKU)`;
+      printSkuTokenAuditReport(resolvedSku, nextTokenAudit, triggerLabel);
+    }
 
     const dateStr = new Date().toLocaleDateString('pt-BR') + ' ' + new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     globalAuditTasks.unshift({
@@ -2500,6 +2790,7 @@ async function startOrchestrationForSku(
     finishedAt: null,
     commercialAlert: null,
     errorWaitingForSku: false,
+    tokenAudit: null,
     steps: currentSteps
   }).catch((e) => console.error('Falha ao criar esqueleto do briefing: ', e));
 
@@ -2515,10 +2806,14 @@ async function startOrchestrationForSku(
     return { req, exe, oldS: 0, newS: 100, ev: 100 };
   };
 
+  let autoNuvemshopSeoOk = false;
+  let autoMeliAgentOk = false;
+
   const saveProductCallback = async (seoJson: any) => {
     try {
       console.log(`[Especialista SEO] Salvando automaticamente textos e SEO na Nuvemshop para SKU: ${resolvedSku}`);
       await updateNuvemshopProduct(resolvedSku, seoJson);
+      autoNuvemshopSeoOk = true;
       console.log(`[✅ Especialista SEO] Textos, título, meta e descrição HTML salvos com sucesso na Nuvemshop!`);
     } catch (saveErr: any) {
       console.error(`[❌ Especialista SEO] Erro ao salvar na Nuvemshop:`, saveErr?.message || saveErr);
@@ -2526,7 +2821,7 @@ async function startOrchestrationForSku(
 
     try {
       console.log(`[🚀 MeliAgent] Disparando Webhook de Atualização para SKU: ${resolvedSku}`);
-      await fetch('https://ais-pre-aj3lqhgqeg6eru2q43vpyh-376013781567.us-west2.run.app/api/webhook/briefing-update', {
+      const meliRes = await fetch('https://ais-pre-aj3lqhgqeg6eru2q43vpyh-376013781567.us-west2.run.app/api/webhook/briefing-update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2534,6 +2829,7 @@ async function startOrchestrationForSku(
           secret: 'meli-agent-secret-2026'
         })
       });
+      autoMeliAgentOk = meliRes.ok;
       console.log(`[✅ MeliAgent] Webhook disparado com sucesso.`);
     } catch (meliError: any) {
       console.error(`[❌ MeliAgent] Falha ao disparar webhook:`, meliError?.message || meliError);
@@ -2600,6 +2896,14 @@ async function startOrchestrationForSku(
           ...(extraData || {}),
           ...artResetPatch
         };
+
+        if (step === 'seo' && briefingPatch.tokenAudit) {
+          const syncedAudit = ensureSkuTokenAudit(resolvedSku, briefingPatch.tokenAudit);
+          syncedAudit.webhooks.nuvemshopSeo = autoNuvemshopSeoOk;
+          syncedAudit.webhooks.meliAgent = autoMeliAgentOk;
+          syncedAudit.webhooks.lastWebhookAt = (autoNuvemshopSeoOk || autoMeliAgentOk) ? Date.now() : null;
+          briefingPatch.tokenAudit = recalculateTokenAuditTotals(syncedAudit);
+        }
 
         firebaseService
           .saveSkuBriefing(resolvedSku, briefingPatch)
